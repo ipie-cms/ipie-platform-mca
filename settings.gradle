@@ -1,0 +1,52 @@
+// ipie-build-conventions supplies the ipie.* convention plugins. It must be included via
+// pluginManagement so `plugins { id 'ipie.java-conventions' }` resolves in every module below.
+pluginManagement {
+    includeBuild('ipie-build-conventions')
+}
+
+// Matches this repository's name. The repository this was split from also builds a Gradle project;
+// sharing a rootProject.name would collide when both are open in one IDE workspace and would make
+// build scans indistinguishable. The two repositories are independent of each other.
+rootProject.name = 'ipie-platform-mca'
+
+// -----------------------------------------------------------------------
+// ipie-parent: single place that fixes the Spring Boot / Java / library
+// versions used across every module. See ipie-parent/build.gradle.
+// -----------------------------------------------------------------------
+include 'ipie-parent'
+
+// -----------------------------------------------------------------------
+// Shared, reusable library - a single module (organized by package: core,
+// web, security, observability, audit, events, resilience, client, utils,
+// filestorage, cache, session, plus a testFixtures source set for what was
+// common-testing), never deployed as its own service - consumed by every
+// microservice as one dependency.
+// -----------------------------------------------------------------------
+include 'ipie-common-libs'
+
+// -----------------------------------------------------------------------
+// Approved starting point for every backend microservice. Ships with a
+// full vertical slice (User CRUD against PostgreSQL) so the pattern is
+// visible end to end, not just described.
+// -----------------------------------------------------------------------
+// ipie-service-template was extracted into its own repository on 2026-08-09
+// (github.com/ipie-cms/ipie-service-template). A new service now starts by cloning that
+// repository rather than copying a module out of this one.
+
+// ipie-user-service and ipie-iam-service were extracted into their own repositories on 2026-08-09
+// (github.com/ipie-cms/ipie-user-service, github.com/ipie-cms/ipie-iam-service). Both build
+// against this platform's published artifacts.
+// ipie-communication-service was extracted into its own repository on 2026-08-09
+// (github.com/ipie-cms/ipie-communication-service) - the pilot for repo-per-service. It builds
+// against this platform's published artifacts, so it is no longer a module here.
+
+// -----------------------------------------------------------------------
+// Runs inside Keycloak's own runtime (not Spring) - a custom
+// first-broker-login Authenticator for the stakeholder SSO federation
+// feature. See ipie-keycloak-spi/build.gradle for why it uses only the
+// bare ipie.java-conventions plugin.
+// -----------------------------------------------------------------------
+// ipie-keycloak-spi moved into the ipie-iam-service repository on 2026-08-09: it and that service
+// implement stakeholder SSO federation together across the /internal/pillar-links/resolve
+// contract, which changes on both sides at once. It is not a service - it deploys as a jar into
+// Keycloak's providers directory.

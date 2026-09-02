@@ -1,0 +1,25 @@
+# Security defaults applied to every service that pulls in common-security. Loaded via
+# @PropertySource on ResourceServerAutoConfiguration, so it sits below a service's own
+# application.yml in precedence and any service can override it.
+
+server:
+  # Let Tomcat resolve the client address from X-Forwarded-For instead of application code doing
+  # it. This is not a convenience: the correct algorithm walks the header RIGHT-TO-LEFT, discards
+  # entries matching trusted proxies, and takes the first untrusted address. Anything a client
+  # writes ends up on the left and never survives that walk. Parsing the leftmost entry - the
+  # obvious-looking approach - hands the client control of its own identity, which then flows into
+  # the rate limiter's bucket key and the audit trail's client-IP field.
+  forward-headers-strategy: NATIVE
+  tomcat:
+    remoteip:
+      # Empty on purpose, and it must stay that way as a default. Tomcat's own built-in value
+      # trusts every RFC1918 range, which inside Kubernetes or ECS means any pod in the cluster is
+      # a trusted proxy - far wider than intended. Empty means no proxy is trusted, X-Forwarded-For
+      # is ignored entirely, and the direct peer is used: the header becomes unforgeable at the
+      # cost of every request appearing to come from the gateway.
+      #
+      # Each environment sets IPIE_TRUSTED_PROXIES to the ingress + API gateway CIDR (a regex, e.g.
+      # 10\.0\.(1|2)\.\d{1,3}) to recover the real client address. Do that only once you have
+      # confirmed the gateway REPLACES an inbound X-Forwarded-For rather than appending to it -
+      # otherwise a client-supplied entry can still survive the walk.
+      internal-proxies: ${IPIE_TRUSTED_PROXIES:}

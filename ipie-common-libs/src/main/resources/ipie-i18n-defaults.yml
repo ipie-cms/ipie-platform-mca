@@ -1,0 +1,18 @@
+# Loaded by I18nAutoConfiguration via @PropertySource at the LOWEST precedence (Spring adds
+# @PropertySource entries after the environment's existing sources, so a consuming service's own
+# application.yml / env vars always win over this) - same mechanism and precedence as
+# ipie-resilience-defaults.yml.
+#
+# spring.messages.basename is a comma-separated list, checked in order for a given code:
+# "common-messages" is this module's own shared system-message bundle (see common-messages*.properties
+# alongside this file), "messages" is the conventional basename for a service's own
+# messages_<lang>.properties. A service adding its own translations only needs to add that file -
+# no Java code and no property override required.
+spring:
+  messages:
+    basename: common-messages,messages
+    # false, not Spring Boot's own true default: a request whose locale has no matching bundle
+    # entry should fall through to MessageResolver's own explicit default-message fallback, not to
+    # whatever locale the host JVM happens to be running under - that would make the same request
+    # behave differently depending on which machine served it.
+    fallback-to-system-locale: false

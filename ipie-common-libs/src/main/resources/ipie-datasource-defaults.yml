@@ -1,0 +1,106 @@
+# Connection pool and JPA tuning surface, loaded by IpieDataSourceAutoConfiguration via
+# @PropertySource at the LOWEST precedence - a consuming service's application.yml, its
+# application-<profile>.yml, and any environment variable all win over everything here.
+#
+# WHY THIS FILE EXISTS AT ALL. Every value below already had an effective default: HikariCP's and
+# Hibernate's own. Two things were wrong with leaving it there.
+#
+#   1. Nothing in the platform said what the pool was set to, so nobody could review it. The
+#      Database Administrator owns "database sizing and tuning, high availability and failover
+#      topology" (Development Environment Configuration, Scope and Ownership) and had no surface to
+#      own - the numbers lived in a third-party library's source.
+#   2. An upstream default is not a baseline. A HikariCP or Hibernate upgrade can change one, and
+#      the platform would inherit the change silently, in every service at once, with no diff to
+#      review. Pinning them here makes any such change a deliberate edit.
+#
+# EVERY VALUE BELOW IS THE CURRENT EFFECTIVE DEFAULT. Adopting this file changes no behaviour; it
+# only makes the behaviour visible and overridable. Deliberately so - a tuning change should be its
+# own reviewed commit, not a side effect of gaining the ability to tune.
+#
+# Each entry is ${ENV_VAR:baseline}, so an environment sets the variable and leaves the file alone.
+spring:
+  datasource:
+    hikari:
+      # Pool size. Hikari's guidance is a small FIXED pool: connections are held only for the
+      # duration of a statement, so a pool larger than the database can service concurrently just
+      # moves queueing from the application into the database, where it is more expensive. Keep
+      # minimum-idle equal to maximum-pool-size unless there is a measured reason not to - a
+      # varying pool trades steady-state latency for idle-connection savings the database tier
+      # sized in the environment document does not need.
+      maximum-pool-size: ${IPIE_DB_POOL_MAX_SIZE:10}
+      # Defaults to whatever the maximum is, which is HikariCP's own behaviour (its literal default
+      # is -1, meaning "follow maximum-pool-size"). Written as a nested placeholder rather than a
+      # fixed number on purpose: hard-coding 10 here would mean that raising ONLY the maximum
+      # silently converted the pool from fixed to varying, which is not what the operator asked for.
+      minimum-idle: ${IPIE_DB_POOL_MIN_IDLE:${IPIE_DB_POOL_MAX_SIZE:10}}
+
+      # How long a caller waits for a connection before failing. This is a backpressure control,
+      # not a timeout to raise when the pool is exhausted: raising it hides saturation as latency.
+      connection-timeout: ${IPIE_DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+
+      # How long a connection may sit idle, and live in total, before it is retired. max-lifetime
+      # MUST stay below any connection lifetime imposed downstream - the database's own idle
+      # termination, and any load balancer or proxy between the two - or the pool hands out
+      # connections the far end has already closed.
+      idle-timeout: ${IPIE_DB_POOL_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${IPIE_DB_POOL_MAX_LIFETIME_MS:1800000}
+
+      # Time allowed for the aliveness check on a borrowed connection.
+      validation-timeout: ${IPIE_DB_POOL_VALIDATION_TIMEOUT_MS:5000}
+
+      # Logs a stack trace for any connection held longer than this many milliseconds - the fastest
+      # way to find a leaked connection. Off by default, and worth switching on (30000 is a usual
+      # starting point) in a non-production tier that is exhausting its pool.
+      leak-detection-threshold: ${IPIE_DB_POOL_LEAK_DETECTION_MS:0}
+
+      # How often an idle connection is probed to keep it alive. 120000 is HikariCP 6's own default
+      # and is NOT zero - it enables keepalive out of the box. Restated here so an upgrade that
+      # changes it becomes a visible diff; setting 0 disables the probe, which is only right where
+      # nothing between the service and the database drops quiet connections.
+      keepalive-time: ${IPIE_DB_POOL_KEEPALIVE_MS:120000}
+
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          # JDBC batching, off by default because it is off in Hibernate today and turning it on
+          # changes when statements reach the database. Set a batch size (50 is a usual starting
+          # point) together with BOTH ordering flags below - batching without ordering produces
+          # many small batches instead of few large ones, and can look like no improvement at all.
+          batch_size: ${IPIE_DB_BATCH_SIZE:0}
+        # Sort pending inserts and updates by table so they batch together. Only meaningful with
+        # batch_size above; harmless when it is 0.
+        order_inserts: ${IPIE_DB_ORDER_INSERTS:false}
+        order_updates: ${IPIE_DB_ORDER_UPDATES:false}
+#
+# DELIBERATELY NOT LISTED HERE. hibernate.jdbc.fetch_size, hibernate.jdbc.batch_versioned_data and
+# hibernate.query.fail_on_pagination_over_collection_fetch are all real tuning knobs, and all three
+# are settable on any service exactly as they are today - Spring Boot binds
+# spring.jpa.properties.hibernate.* straight through. They are absent because this file's contract
+# is that every line restates the CURRENT effective default, and their defaults vary by Hibernate
+# version in ways not verified against 6.6.53. Restating one wrongly would change behaviour in every
+# service at once, which is the failure this file exists to prevent. Verify the default against the
+# Hibernate release in the version matrix before adding any of them.
+
+# --- read/write splitting -----------------------------------------------------------------------
+# Off. Turning it on sends every @Transactional(readOnly = true) call to a replica and leaves
+# everything else on the primary; see ReadWriteRoutingDataSourceAutoConfiguration for the two traps
+# it closes (the routing has to be lazy, and Flyway has to stay pinned to the primary).
+#
+# Only the switch is listed here, because the rest have no safe baseline to state:
+#
+#   ipie.datasource.replica.url                 required when enabled - startup fails without it,
+#                                               rather than quietly reading from the primary and
+#                                               reporting a split that is not happening
+#   ipie.datasource.replica.username/password   default to the primary's, which is the usual case
+#   ipie.datasource.replica.maximum-pool-size   defaults to the primary's; size it separately once
+#                                               the two are carrying different traffic
+#
+# BEFORE ENABLING: replication is asynchronous, so a read-only transaction may not see a write that
+# has just committed in a different transaction. Any flow that re-reads what it just wrote must do
+# so inside the writing transaction, or on a method that is not marked read-only. That is a real
+# behaviour change, which is why this is a deployment decision and not a default.
+ipie:
+  datasource:
+    replica:
+      enabled: ${IPIE_DB_REPLICA_ENABLED:false}

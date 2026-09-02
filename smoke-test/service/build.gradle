@@ -1,0 +1,17 @@
+// Applies the convention plugin a REAL service uses. ipie.spring-service-conventions carries the
+// platform BOM and the shared test-fixtures wiring inside the plugin itself; until 2026-08-09 those
+// were unconditional project(':...') references, so applying this plugin outside the monorepo failed
+// with "Project with path ':ipie-parent' could not be found". The library/ project cannot catch that
+// - ipie.java-conventions has no project dependencies - which is why this second project exists.
+plugins {
+    id 'ipie.spring-service-conventions'
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    implementation "in.gov.ipie:ipie-common-libs:${property('ipiePlatformVersion')}"
+}

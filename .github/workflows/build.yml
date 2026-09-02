@@ -1,0 +1,68 @@
+# Platform CI. Runs on every pull request and every push to master.
+#
+# Entry point is the root `qualityCheck` task, which build.gradle already describes as "what CI
+# runs before merge": Checkstyle, SpotBugs, and every module's unit, architecture and integration
+# tests. Keeping CI pointed at that one task means the gate can never drift from what a developer
+# runs locally - there is no second list of checks to maintain here.
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A newer push to the same branch cancels the previous run; master is never cancelled, so the
+# post-merge result on the default branch is always recorded.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'          # matches JavaLanguageVersion.of(21) in ipie.java-conventions
+          distribution: temurin
+
+      # Caches the Gradle user home and, on master, writes the build cache that PR runs read from.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/master' }}
+
+      # Integration tests (PostgresIntegrationTest, ElasticsearchIntegrationTest) start real
+      # containers via Testcontainers. ubuntu-latest ships a working Docker daemon, so no service
+      # containers need declaring here - Testcontainers manages lifecycle itself.
+      - name: Quality gate (static analysis + all tests)
+        run: ./gradlew qualityCheck --no-daemon --stacktrace
+
+      # The only check that exercises ipie-build-conventions as a PUBLISHED artifact. Every build
+      # above resolves ipie-quality-config from the top-level folder; a service outside this
+      # repository extracts it from the plugin jar instead, and nothing else covers that path.
+      # It caught a real version-alignment defect the first time it ran - see smoke-test/README.md.
+      - name: Smoke test - published conventions plugin
+        run: ./smoke-test/run.sh
+
+      # Reports are what make a red build diagnosable without re-running it locally.
+      - name: Upload test and analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            **/build/reports/tests/**
+            **/build/reports/checkstyle/**
+            **/build/reports/spotbugs/**
+            **/build/test-results/**
+          retention-days: 14
+          if-no-files-found: ignore

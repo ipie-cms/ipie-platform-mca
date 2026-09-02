@@ -1,0 +1,139 @@
+// Common conventions applied to EVERY Java module in the platform:
+// common libraries, the service template and every microservice created
+// from it. Individual modules must not redefine these settings - if a
+// rule needs to change, it changes here once for the whole platform.
+
+plugins {
+    id 'java'
+    id 'checkstyle'
+    id 'jacoco'
+    id 'com.github.spotbugs'
+}
+
+group = 'in.gov.ipie'
+// Was hard-coded to 'unspecified' while the versioning strategy was deferred (master standards doc,
+// section 12 item 5). That was harmless when nothing published; once ipie-common-libs gained a
+// publication it silently produced an artifact literally versioned "unspecified", which no consumer
+// could sensibly depend on. The version now comes from gradle.properties, which is the single place
+// it is bumped for a release.
+version = providers.gradleProperty('version').getOrElse('0.0.0-LOCAL')
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+// Available to every module (common-libs and every service), compile-time only - a downstream
+// service consuming a compiled common-lib jar never needs Lombok on its own classpath just to
+// use the classes it produces (getters/builders/etc. are already plain bytecode by then). Each
+// module's own convention plugin (library-/spring-service-conventions) is responsible for also
+// importing ipie-parent's platform() onto the annotationProcessor/testAnnotationProcessor
+// configurations, which is what lets these versionless declarations resolve (master standards
+// doc, section 5's Lombok convention).
+dependencies {
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+    testLogging {
+        events 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+}
+
+// Resolves a file from ipie-quality-config, working both inside this monorepo and in a service that
+// applies the published plugin.
+//
+// In-repo, the folder sits at the root and is used directly - unchanged behaviour, and it stays the
+// single source an engineer edits. Outside, no such folder exists (rootProject is the service), so
+// the copy packaged into this plugin's jar is extracted to the consuming build's own build/ dir.
+// Checkstyle and SpotBugs need a real File, not a classpath URL, which is why extraction is
+// necessary rather than just handing over a resource.
+//
+// The extraction is unconditional. Skipping it when the destination already existed meant a service
+// kept whatever it extracted first: a new plugin version could add a Checkstyle rule or a SpotBugs
+// exclusion and the consuming build would go on using the old file until someone happened to run a
+// clean. The failure is silent in the direction that matters - the build stays green against rules
+// nobody is applying any more - and it cost a debugging session on a filter change that appeared to
+// do nothing.
+def ipieQualityConfig = { String relativePath ->
+    File inRepo = rootProject.file("ipie-quality-config/$relativePath")
+    if (inRepo.exists()) {
+        return inRepo
+    }
+    File extracted = layout.buildDirectory.file("ipie-quality-config/$relativePath").get().asFile
+    InputStream packaged = this.getClass().getResourceAsStream("/ipie-quality-config/$relativePath")
+    if (packaged == null) {
+        throw new GradleException(
+                "ipie-quality-config/$relativePath is neither in this repository nor packaged in " +
+                "ipie-build-conventions. The published plugin must ship it - see its packageQualityConfig task.")
+    }
+    extracted.parentFile.mkdirs()
+    packaged.withCloseable { extracted.newOutputStream().withCloseable { out -> out << it } }
+    return extracted
+}
+
+checkstyle {
+    toolVersion = '13.7.0'
+    configFile = ipieQualityConfig('checkstyle/checkstyle.xml')
+    maxWarnings = 0
+}
+
+// Test sources follow a relaxed variant: underscored test method names and lower_snake_case
+// ArchUnit @ArchTest fields are established conventions, not style violations.
+tasks.named('checkstyleTest', Checkstyle) {
+    configFile = ipieQualityConfig('checkstyle/checkstyle-test.xml')
+}
+
+spotbugs {
+    excludeFilter = ipieQualityConfig('spotbugs/spotbugs-exclude.xml')
+    ignoreFailures = false
+}
+
+tasks.named('spotbugsMain', com.github.spotbugs.snom.SpotBugsTask) {
+    reports {
+        html.required = true
+        xml.required = false
+    }
+}
+
+tasks.named('spotbugsTest') {
+    enabled = false
+}
+
+jacoco {
+    toolVersion = '0.8.15'
+}
+
+tasks.named('jacocoTestReport') {
+    dependsOn tasks.named('test')
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+tasks.named('test') {
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.withType(Checkstyle).configureEach {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}

@@ -1,0 +1,13 @@
+# Auto-provisions every dashboard JSON file in this directory on Grafana startup, mirroring
+# datasources/prometheus.yml's approach - see docker-compose.yml's grafana service, which mounts
+# deploy/grafana/provisioning as a whole.
+apiVersion: 1
+
+providers:
+  - name: ipie
+    folder: iPIE
+    type: file
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

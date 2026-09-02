@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Generated MapStruct mapper implementations are not hand-reviewed code. -->
+    <Match>
+        <Class name="~.*MapperImpl"/>
+    </Match>
+
+    <!-- Test sources are covered by test review, not SpotBugs. -->
+    <Match>
+        <Class name="~.*Test"/>
+    </Match>
+    <Match>
+        <Class name="~.*Tests"/>
+    </Match>
+
+    <!-- JPA entities intentionally expose mutable setters required by Hibernate. -->
+    <Match>
+        <Class name="~.*\.persistence\..*Entity"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        Constructor-injected framework collaborators are intentionally shared, framework-managed
+        singletons, not internal state exposed to untrusted code. SpotBugs' Field/@type matcher
+        needs an exact type (no regex support, unlike Class/@name) - a generalized regex here
+        silently matches nothing and lets the finding back through, so this stays a per-type list.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="com.fasterxml.jackson.databind.ObjectMapper"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.config.IpieSecurityProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="org.springframework.kafka.core.KafkaTemplate"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="org.springframework.amqp.rabbit.core.RabbitTemplate"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.events.outbox.OutboxStore"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.template.service.UserService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.template.service.DocumentService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.user.service.UserService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.user.service.VisibilityScopeResolver"/>
+    </Match>
+    <!--
+        EntityManager is a container-managed proxy, not a value the application owns or copies: the
+        persistence context is the point of holding it. Excluded by type rather than per class so a
+        repository that reaches for a native query - a recursive CTE, say - does not have to add an
+        entry each time.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="jakarta.persistence.EntityManager"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.service.RoleService"/>
+    </Match>
+    <!--
+        These moved out of the former iam `resolution/` package on 2026-08-07, when it was dissolved
+        into the platform's standard layer packages. The Field/@type matcher above is exact, so the
+        old fully-qualified names silently stopped matching and EI_EXPOSE_REP2 reappeared on
+        PillarLinkResolveController - the precise failure mode the comment above warns about.
+        Any future package move must update these entries in the same change.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.service.PillarResolutionService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.repository.PillarResolutionRepository"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.persistence.PillarResolutionJpaRepository"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.config.service.UserService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.config.service.DocumentService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.filestorage.storage.FileStorage"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.template.storage.S3StorageProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.config.storage.S3StorageProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="software.amazon.awssdk.services.s3.S3Client"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="software.amazon.awssdk.services.s3.presigner.S3Presigner"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="org.springframework.data.redis.core.StringRedisTemplate"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.client.config.InterServiceClientProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.client.config.OpaAuthorizationProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.hmac.HmacSigningProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.keycloak.KeycloakTokenProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.keycloak.admin.KeycloakAdminProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.keycloak.admin.KeycloakUserManagementProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.keycloak.admin.KeycloakUserManagementClient"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.user.integration.PillarIdpAdminClient"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.user.integration.PillarIdpTokenClient"/>
+    </Match>
+
+    <!--
+        A @ConfigurationProperties-bound class, populated once by Spring's binder at startup and
+        treated as effectively-immutable app config from then on - not internal state exposed to
+        untrusted code, the same reasoning the *Properties field-type exclusions above use, but
+        this finding is on the class's own getter exposing its own field, not another class
+        holding a reference to it, so it needs a Class match instead of a Field-type match.
+    -->
+    <Match>
+        <Class name="in.gov.ipie.service.user.integration.PillarLinkingProperties"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.session.config.SessionProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.session.store.SessionStore"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.web.idempotency.IdempotencyProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.common.security.ratelimit.RateLimitProperties"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="io.micrometer.core.instrument.MeterRegistry"/>
+    </Match>
+
+    <!--
+        ipie-iam-service's credential authority (ARCHITECTURE_WORKING_PLAN.md, D2). Same reasoning as every
+        entry above - a Spring-injected service or repository port, not internal state handed to
+        untrusted code. Listed here rather than left to fail because the alternative a developer
+        reaches for is a defensive copy, and copying a repository proxy is meaningless.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.service.CredentialService"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.repository.UserCredentialRepository"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.repository.CredentialSetupTokenRepository"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field type="in.gov.ipie.service.iam.repository.RoleRepository"/>
+    </Match>
+
+    <!--
+        Keycloak's own AuthenticatorFactory.create(KeycloakSession) contract expects a shared,
+        stateless Authenticator instance back - Keycloak's own built-in factories return the same
+        kind of singleton. Not internal state exposed to untrusted code, the same reasoning as the
+        framework-collaborator exclusions above; this finding is on the factory's own method
+        exposing its own singleton field, so it needs a Class match instead of a Field-type match.
+
+        IpieUsernamePasswordFormFactory is the same pattern for the browser login flow: Keycloak's
+        own UsernamePasswordFormFactory returns a shared singleton exactly this way, and the
+        authenticator holds no per-request state (ARCHITECTURE_WORKING_PLAN.md, Stage 2).
+    -->
+    <Match>
+        <Or>
+            <Class name="in.gov.ipie.keycloak.spi.pillar.PillarLinkResolverAuthenticatorFactory"/>
+            <Class name="in.gov.ipie.keycloak.spi.credential.IpieUsernamePasswordFormFactory"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        notificationChannels is deliberately Set<NotificationChannel> across every plain
+        command/request/response/event record that carries a user's notification-channel
+        preference (CreateUserCommand, CreateRegistrationCommand, UserRegistrationCompletedPayload,
+        UserLoggedInPayload, the ipie-communication-service duck-typed event copies, ...) - by
+        field name rather than one Class entry per record, since it is the same field playing the
+        same role everywhere it appears. These are pure data-transfer records constructed only via
+        User.defaultChannels()'s already-immutable Set.of(...)/Set.copyOf(...) or Jackson
+        deserialization, not encapsulated mutable state guarding an invariant.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Field name="notificationChannels"/>
+    </Match>
+</FindBugsFilter>

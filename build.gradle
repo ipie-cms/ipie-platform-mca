@@ -1,0 +1,10 @@
+// Root build file. Individual modules apply one of the ipie.* convention
+// plugins from buildSrc (see buildSrc/src/main/groovy) - nothing about
+// Java version, static analysis or test wiring should be configured
+// module-by-module.
+
+tasks.register('qualityCheck') {
+    group = 'verification'
+    description = 'Runs the full static analysis + test suite across every module (what CI runs before merge).'
+    dependsOn subprojects.collect { it.tasks.matching { t -> t.name == 'check' } }
+}

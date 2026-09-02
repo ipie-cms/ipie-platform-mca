@@ -1,0 +1,31 @@
+// Standalone build, deliberately NOT part of the platform's settings.gradle: it must resolve
+// ipie-build-conventions the way a service outside this repository does - from a published
+// artifact - not through includeBuild. Run it via smoke-test/run.sh, or the CI job of the same name.
+//
+// Two subprojects, because the convention plugins fail differently:
+//   library/  applies ipie.java-conventions          - no project dependencies of its own
+//   service/  applies ipie.spring-service-conventions - carries the BOM and test-fixtures wiring
+// Only the second would have caught the coupling found while extracting
+// ipie-communication-service, where the plugin's own project(':ipie-parent') failed outside the
+// monorepo. Testing only the first proved the wrong plugin.
+//
+// pluginManagement must be the first block in a settings file, so the platform version arrives as
+// a -P property from run.sh rather than being read from a file here.
+pluginManagement {
+    def ipieVersion = settings.startParameter.projectProperties.get('ipiePlatformVersion')
+
+    repositories {
+        mavenLocal()
+        gradlePluginPortal()
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id.startsWith('ipie.')) {
+                useModule("in.gov.ipie:ipie-build-conventions:${ipieVersion}")
+            }
+        }
+    }
+}
+
+rootProject.name = 'ipie-smoke-test'
+include 'library', 'service'

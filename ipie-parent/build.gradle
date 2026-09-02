@@ -1,0 +1,99 @@
+// ipie-parent is the ONE place that fixes framework and library versions
+// for the whole platform. No module, common library or microservice is
+// allowed to declare its own version for anything managed here -
+// developers must not choose dependency versions independently (see
+// master standards doc, section 5.2).
+//
+// Every module consumes this via:
+//   dependencies { implementation platform(project(':ipie-parent')) }
+
+plugins {
+    id 'java-platform'
+    id 'ipie.publishing-conventions'
+}
+
+group = 'in.gov.ipie'
+
+javaPlatform {
+    allowDependencies()
+}
+
+ext {
+    approvedVersions = [
+        springBoot            : '3.5.16',
+        mapstruct             : '1.6.3',
+        archunit              : '1.4.2',
+        springdoc             : '2.8.17',
+        testcontainers        : '2.0.5',
+        logstashEncoder       : '9.0',
+        resilience4j          : '2.4.0',
+        awsSdk                : '2.47.5',
+        tika                  : '3.3.1',
+        lombok                : '1.18.46',
+        lombokMapstructBinding: '0.2.0',
+        // Ahead of the Spring Boot BOM's 11.7.2 deliberately. The platform's databases run
+        // PostgreSQL 18, and 11.7.2 supports up to 17 - it migrated correctly but warned on every
+        // startup that the combination is untested, which is not a thing to run migrations on.
+        // user-service V13 uses uuidv7(), a PostgreSQL 18 built-in, so the floor cannot move down
+        // instead. Kept inside major 11: Spring Boot 3.5's Flyway auto-configuration is written
+        // against that line.
+        flyway                : '11.20.3',
+    ]
+}
+
+dependencies {
+    // Re-export the Spring Boot BOM: this is what pins Spring Framework,
+    // Spring Security, Jackson, Logback, Micrometer, the PostgreSQL driver,
+    // JUnit 5, AssertJ, Mockito, etc. for every module. Flyway is the one
+    // exception - constrained below, ahead of what this BOM manages, because
+    // the databases run PostgreSQL 18.
+    api platform("org.springframework.boot:spring-boot-dependencies:${approvedVersions.springBoot}")
+
+    // Re-export the Testcontainers BOM so common-testing and every
+    // service's integration tests use one consistent version.
+    api platform("org.testcontainers:testcontainers-bom:${approvedVersions.testcontainers}")
+
+    // Re-export the AWS SDK v2 BOM: pins the S3 client version used by common-file-storage's
+    // FileStorage port implementations (S3-API-compatible - AWS S3, MinIO, or any other
+    // S3-compatible target, selected by config, never by code - master standards doc, section 9's
+    // file-upload rules).
+    api platform("software.amazon.awssdk:bom:${approvedVersions.awsSdk}")
+
+    constraints {
+        api "org.flywaydb:flyway-core:${approvedVersions.flyway}"
+        api "org.flywaydb:flyway-database-postgresql:${approvedVersions.flyway}"
+        api "org.mapstruct:mapstruct:${approvedVersions.mapstruct}"
+        api "org.mapstruct:mapstruct-processor:${approvedVersions.mapstruct}"
+        api "com.tngtech.archunit:archunit-junit5:${approvedVersions.archunit}"
+        api "org.springdoc:springdoc-openapi-starter-webmvc-ui:${approvedVersions.springdoc}"
+        api "net.logstash.logback:logstash-logback-encoder:${approvedVersions.logstashEncoder}"
+        api "io.github.resilience4j:resilience4j-spring-boot3:${approvedVersions.resilience4j}"
+        api "io.github.resilience4j:resilience4j-micrometer:${approvedVersions.resilience4j}"
+        // Content-sniffing (magic bytes/MIME), not extension-trusting, for upload validation.
+        api "org.apache.tika:tika-core:${approvedVersions.tika}"
+        // Compile-time only (see ipie.java-conventions.gradle) - never a runtime dependency of a
+        // downstream service's classpath, just of the compiler that builds this platform's own
+        // modules (master standards doc, section 5's Lombok convention).
+        api "org.projectlombok:lombok:${approvedVersions.lombok}"
+        // Fixes annotation-processor ordering wherever a class is processed by both Lombok and
+        // MapStruct - without it, MapStruct can run first and generate a mapper against fields
+        // that don't have Lombok-generated accessors yet.
+        api "org.projectlombok:lombok-mapstruct-binding:${approvedVersions.lombokMapstructBinding}"
+    }
+}
+
+// The BOM must be published alongside ipie-common-libs: a service outside this monorepo imports it
+// as a platform to inherit the approved versions above, which is the mechanism that stops each
+// service picking its own (master standards doc, 5.2).
+publishing {
+    publications {
+        parentPlatform(MavenPublication) {
+            from components.javaPlatform
+            artifactId = 'ipie-parent'
+            pom {
+                name = 'iPIE Parent Platform'
+                description = 'Approved dependency versions for every iPIE module.'
+            }
+        }
+    }
+}

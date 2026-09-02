@@ -1,0 +1,164 @@
+{
+  "realm": "nesl-mock",
+  "enabled": true,
+  "sslRequired": "none",
+  "clientScopes": [
+    {
+      "name": "pillar-claims",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "pillar-id-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "pillar_id",
+            "claim.name": "pillar_id",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "preferred-username-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ipie-broker",
+      "name": "iPIE broker exchange - server-to-server only, used by Keycloak's ipie realm broker config",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-broker-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://keycloak:8080/realms/ipie/broker/nesl/endpoint*"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "email",
+        "roles",
+        "pillar-claims"
+      ]
+    },
+    {
+      "clientId": "ipie-account-linker",
+      "name": "iPIE account-linking handshake - browser-facing, used only by ipie-user-service's PillarLinkService",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-account-linker-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8092/api/v1/pillar-links/callback"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "profile",
+        "email",
+        "roles",
+        "pillar-claims"
+      ]
+    },
+    {
+      "clientId": "ipie-admin-writeback",
+      "name": "iPIE admin write-back - server-to-server only, used by PillarIdpAdminClient.writeIpieId",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-admin-writeback-secret",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "description": "Client-credentials only, against nesl-mock own Admin REST API - proves the write-ipie_id-back-onto-the-user-record concept. A real agency without Keycloak would expose whatever write API it has instead (see PillarIdpAdminClient Javadoc)."
+    }
+  ],
+  "users": [
+    {
+      "username": "nesl.officer1",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "officer1@nesl.co.in",
+      "firstName": "NeSL",
+      "lastName": "Officer One",
+      "attributes": {
+        "pillar_id": [
+          "NESL-00123"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "nesl-demo-pass",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "nesl.officer2",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "officer2@nesl.co.in",
+      "firstName": "NeSL",
+      "lastName": "Officer Two",
+      "attributes": {
+        "pillar_id": [
+          "NESL-00456"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "nesl-demo-pass",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "service-account-ipie-admin-writeback",
+      "enabled": true,
+      "serviceAccountClientId": "ipie-admin-writeback",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users"
+        ]
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\": [{\"name\": \"username\", \"displayName\": \"${username}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"email\", \"displayName\": \"${email}\", \"validations\": {\"email\": {}}, \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"firstName\", \"displayName\": \"${firstName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"lastName\", \"displayName\": \"${lastName}\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\", \"user\"]}, \"multivalued\": false}, {\"name\": \"pillar_id\", \"displayName\": \"Pillar identifier\", \"permissions\": {\"view\": [\"admin\", \"user\"], \"edit\": [\"admin\"]}, \"multivalued\": false}]}"
+          ]
+        }
+      }
+    ]
+  }
+}

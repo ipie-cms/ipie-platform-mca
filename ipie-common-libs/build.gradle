@@ -1,0 +1,95 @@
+plugins {
+    id 'ipie.library-conventions'
+    id 'ipie.publishing-conventions'
+    id 'java-test-fixtures'
+}
+
+description = 'Every iPIE shared library concern (exceptions/paging, web error handling, security, ' +
+        'observability, audit, events, resilience, inter-service client, general utils, file storage, ' +
+        'cache, session) as one module, organized by package - a service takes exactly one dependency ' +
+        'on this instead of one per concern. Test fixtures (Testcontainers base classes, ArchUnit rules) ' +
+        'live in src/testFixtures, not here, so Testcontainers/spring-boot-starter-test never land on a ' +
+        'consuming service\'s main/runtime classpath.'
+
+dependencies {
+    api 'org.springframework.boot:spring-boot-starter-aop'
+    api 'org.springframework.boot:spring-boot-starter-oauth2-client'
+    api 'org.springframework:spring-web'
+    api 'org.springframework.boot:spring-boot-starter-actuator'
+    api 'io.micrometer:micrometer-tracing-bridge-otel'
+    api 'io.opentelemetry:opentelemetry-exporter-otlp'
+    api 'io.micrometer:micrometer-registry-prometheus'
+    api 'net.logstash.logback:logstash-logback-encoder'
+    api 'io.github.resilience4j:resilience4j-spring-boot3'
+    api 'io.github.resilience4j:resilience4j-micrometer'
+    api 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    api 'org.springframework.boot:spring-boot-starter-security'
+    api 'org.springframework.boot:spring-boot-starter-web'
+
+    implementation 'org.springframework.boot:spring-boot-autoconfigure'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+    implementation 'org.apache.tika:tika-core'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.security:spring-security-core'
+    implementation 'org.slf4j:slf4j-api'
+
+    // Opt-in per consuming service, the same way each former module declared these - compileOnly
+    // here means a service without jakarta.servlet, the Redis starter, or JPA on its own classpath
+    // still compiles fine against everything that doesn't need them.
+    compileOnly 'jakarta.servlet:jakarta.servlet-api'
+    compileOnly 'org.springframework.boot:spring-boot-starter-data-redis'
+    compileOnly 'org.springframework.boot:spring-boot-starter-data-jpa'   // backs persistence.AuditableJpaEntity
+    // backs events.deadletter - the dead-letter topology a consumer service declares. Same
+    // compileOnly treatment as the two above: a service that publishes events through the
+    // logging fallback, with no broker at all, must not be forced onto the AMQP classpath.
+    compileOnly 'org.springframework.boot:spring-boot-starter-amqp'
+    // backs web.config.OpenApiAutoConfiguration - the one OpenAPI bean every service used to
+    // declare for itself. compileOnly for the same reason as the rest: a service that exposes no
+    // HTTP API at all must not inherit a documentation UI.
+    compileOnly 'org.springdoc:springdoc-openapi-starter-webmvc-ui'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    testImplementation 'jakarta.servlet:jakarta.servlet-api'
+    testImplementation 'org.springframework:spring-test'
+    // The platform's own JPA code (events.jpa) is proven against a real PostgreSQL through the
+    // Testcontainers fixture, so this module's tests need the driver a consuming service carries at
+    // runtime. testRuntimeOnly: nothing here compiles against it.
+    testRuntimeOnly 'org.postgresql:postgresql'
+
+    // Was common-testing's own `api` deps - testFixturesApi so they propagate to any service
+    // pulling in testFixtures(project(':ipie-common-libs')), the same way they used to propagate
+    // as transitive `api` deps of the standalone common-testing module. The java-test-fixtures
+    // plugin also wires this module's own src/test to see testFixtures automatically, so this
+    // module's own ArchitectureTest (src/test) gets archunit-junit5 through here too, not just
+    // consuming services.
+    testFixturesApi 'org.springframework.boot:spring-boot-starter-test'
+    testFixturesApi 'org.testcontainers:testcontainers-junit-jupiter'
+    testFixturesApi 'org.testcontainers:testcontainers-postgresql'
+    testFixturesApi 'org.testcontainers:testcontainers-elasticsearch'
+    testFixturesApi 'com.tngtech.archunit:archunit-junit5'
+}
+
+// Published so a service building outside this monorepo can depend on
+// in.gov.ipie:ipie-common-libs:<version> instead of project(':ipie-common-libs').
+//
+// components.java carries the test-fixtures variant too, because java-test-fixtures registers it
+// as a feature of this component - so testFixtures(...) keeps resolving for an external consumer
+// exactly as it does for ipie-service-template today. Without that, every service's
+// ArchitectureTest (which needs LayeredArchitectureRules from testFixtures) would fail to resolve
+// the moment it left the monorepo.
+publishing {
+    publications {
+        commonLibs(MavenPublication) {
+            from components.java
+            artifactId = 'ipie-common-libs'
+            pom {
+                name = 'iPIE Common Libraries'
+                description = project.description
+            }
+        }
+    }
+}

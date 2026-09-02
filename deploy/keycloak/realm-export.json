@@ -1,0 +1,826 @@
+{
+  "realm": "ipie",
+  "enabled": true,
+  "sslRequired": "none",
+  "eventsEnabled": true,
+  "eventsListeners": [
+    "jboss-logging",
+    "ipie-login-notifier"
+  ],
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "SUPER_ADMIN",
+        "description": "Platform operator - top of the role hierarchy, above PILLAR_ADMIN and deliberately not composed of it: a super admin governs pillar admins rather than being one. Composite: full user/organisation/document/role management.",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "USER_READ",
+            "USER_WRITE",
+            "USER_DELETE",
+            "ORGANISATION_READ",
+            "ORGANISATION_WRITE",
+            "DOCUMENT_READ",
+            "DOCUMENT_WRITE",
+            "ROLES_MANAGE",
+            "RBAC_DEFINE",
+            "NOTIFICATIONS_VIEW"
+          ]
+        }
+      },
+      {
+        "name": "USER_READ",
+        "description": "Read access to the User API"
+      },
+      {
+        "name": "USER_WRITE",
+        "description": "Create/update access to the User API"
+      },
+      {
+        "name": "USER_DELETE",
+        "description": "Soft-delete/reactivate access to the User API"
+      },
+      {
+        "name": "DOCUMENT_READ",
+        "description": "Read/download access to the Document API"
+      },
+      {
+        "name": "DOCUMENT_WRITE",
+        "description": "Upload access to the Document API"
+      },
+      {
+        "name": "STAKEHOLDER",
+        "description": "Default role auto-assigned on registration verification (ipie-iam-service)"
+      },
+      {
+        "name": "PILLAR_ADMIN",
+        "description": "Administers one pillar (IBBI/NCLT/NCLAT/MCA/NeSL) and its users - verifies pending registrations and manages roles. Below SUPER_ADMIN in the hierarchy, not a platform operator.",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "ROLES_MANAGE",
+            "USER_READ",
+            "REGISTRATIONS_VERIFY",
+            "DASHBOARD_VIEW"
+          ]
+        }
+      },
+      {
+        "name": "CREDITOR",
+        "description": "IBC creditor stakeholder"
+      },
+      {
+        "name": "INSOLVENCY_PROFESSIONAL",
+        "description": "IBC insolvency professional stakeholder"
+      },
+      {
+        "name": "REGISTERED_VALUER",
+        "description": "IBC registered valuer stakeholder (RV/RVE Login)"
+      },
+      {
+        "name": "LEGAL_REPRESENTATIVE",
+        "description": "Legal entity/legal representative stakeholder"
+      },
+      {
+        "name": "AUTHORIZED_REPRESENTATIVE",
+        "description": "Authorized representative of a creditor/stakeholder class"
+      },
+      {
+        "name": "IBBI_OFFICIAL",
+        "description": "IBBI senior official - platform regulator, not a case stakeholder"
+      },
+      {
+        "name": "PILLAR_LINK_RESOLVE",
+        "description": "Calls POST /internal/pillar-links/resolve on ipie-iam-service - granted only to the ipie-keycloak-spi service account"
+      },
+      {
+        "name": "ORGANISATION_READ",
+        "description": "Read access to the Organisation API"
+      },
+      {
+        "name": "ORGANISATION_WRITE",
+        "description": "Create/update access to the Organisation API"
+      },
+      {
+        "name": "ACCOUNT_PROVISION",
+        "description": "Calls POST /internal/accounts on ipie-iam-service - granted only to the ipie-user-service service account"
+      },
+      {
+        "name": "LOGIN_NOTIFY",
+        "description": "Calls POST /internal/logins/notify on ipie-user-service - granted only to the ipie-keycloak-spi service account"
+      },
+      {
+        "name": "ROLES_MANAGE",
+        "description": "Assign an existing role to a user and withdraw it - gates POST/DELETE/GET /api/v1/users/{userId}/roles on ipie-iam-service. Defining roles and permissions is RBAC_DEFINE, held only by SUPER_ADMIN."
+      },
+      {
+        "name": "RBAC_DEFINE",
+        "description": "Define the RBAC catalogue - gates POST/PUT/DELETE /api/v1/roles and POST /api/v1/permissions on ipie-iam-service. SUPER_ADMIN only: assigning a role hands out an existing capability, defining one decides what capabilities exist."
+      },
+      {
+        "name": "NOTIFICATIONS_VIEW",
+        "description": "View every notification ever sent, any recipient - gates GET /api/v1/notifications on ipie-communication-service. Granted only to SUPER_ADMIN."
+      },
+      {
+        "name": "CREDENTIAL_VERIFY",
+        "description": "Calls POST /internal/credentials/verify on ipie-iam-service - granted only to the ipie-keycloak-spi service account. Keycloak holds no passwords; this is how it asks iam whether one is correct."
+      }
+    ]
+  },
+  "users": [
+    {
+      "id": "20000000-0000-0000-0000-000000000010",
+      "username": "testuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "testuser@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "USER_READ",
+        "USER_WRITE",
+        "USER_DELETE",
+        "DOCUMENT_READ",
+        "DOCUMENT_WRITE",
+        "ORGANISATION_READ",
+        "ORGANISATION_WRITE"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000011",
+      "username": "readonlyuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "readonlyuser@example.com",
+      "firstName": "Readonly",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "USER_READ",
+        "DOCUMENT_READ",
+        "ORGANISATION_READ"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000001",
+      "username": "admin@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "admin@ipie.gov.in",
+      "firstName": "Pillar",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-admin-demo",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "PILLAR_ADMIN"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000005",
+      "username": "superadmin@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "superadmin@ipie.gov.in",
+      "firstName": "Super",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-superadmin-demo",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "SUPER_ADMIN"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000002",
+      "username": "creditor.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "creditor.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Creditor",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "CREDITOR"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000003",
+      "username": "professional.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "professional.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Insolvency Professional",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "INSOLVENCY_PROFESSIONAL"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000006",
+      "username": "rv.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "rv.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Registered Valuer",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "REGISTERED_VALUER"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000007",
+      "username": "legalrep.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "legalrep.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Legal Representative",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "LEGAL_REPRESENTATIVE"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000008",
+      "username": "authorizedrep.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "authorizedrep.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Authorized Representative",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "AUTHORIZED_REPRESENTATIVE"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000009",
+      "username": "ibbi.official.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "ibbi.official.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "IBBI Official",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "IBBI_OFFICIAL"
+      ]
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000004",
+      "username": "pending.verification@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": false,
+      "email": "pending.verification@ipie.gov.in",
+      "firstName": "Pending",
+      "lastName": "Verification",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": []
+    },
+    {
+      "id": "20000000-0000-0000-0000-000000000012",
+      "username": "multirole.demo@ipie.gov.in",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "multirole.demo@ipie.gov.in",
+      "firstName": "Demo",
+      "lastName": "Multi-Role Professional",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "ipie-demo-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "STAKEHOLDER",
+        "INSOLVENCY_PROFESSIONAL",
+        "REGISTERED_VALUER"
+      ]
+    },
+    {
+      "username": "service-account-ipie-user-service",
+      "enabled": true,
+      "serviceAccountClientId": "ipie-user-service",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users"
+        ]
+      },
+      "realmRoles": [
+        "ACCOUNT_PROVISION"
+      ]
+    },
+    {
+      "username": "service-account-ipie-iam-service",
+      "enabled": true,
+      "serviceAccountClientId": "ipie-iam-service",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "manage-realm"
+        ]
+      }
+    },
+    {
+      "username": "service-account-ipie-keycloak-spi",
+      "enabled": true,
+      "serviceAccountClientId": "ipie-keycloak-spi",
+      "realmRoles": [
+        "PILLAR_LINK_RESOLVE",
+        "LOGIN_NOTIFY",
+        "CREDENTIAL_VERIFY"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ipie-service-template",
+      "name": "iPIE Service Template (local dev)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-service-template-secret",
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "protocolMappers": [
+        {
+          "name": "realm-roles-to-permissions-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "permissions",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "ipie-user-service",
+      "name": "iPIE User Service (local dev)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-user-service-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "description": "Client-credentials only - authenticates InterServiceClient calls to ipie-iam-service's /internal/accounts, plus direct realm-management/manage-users calls. Service account granted manage-users and ACCOUNT_PROVISION only, not full admin.",
+      "protocolMappers": [
+        {
+          "name": "realm-roles-to-permissions-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "permissions",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "ipie-iam-service",
+      "name": "iPIE IAM Service (local dev)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-iam-service-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "description": "Client-credentials only - backs KeycloakUserManagementClient.ensureRealmRole/assignRealmRoles. Service account also granted realm-management/manage-realm (role definition CRUD), not full admin."
+    },
+    {
+      "clientId": "ipie-keycloak-spi",
+      "name": "iPIE Keycloak SPI (local dev)",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "ipie-keycloak-spi-secret",
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "description": "Client-credentials only - used by PillarLinkResolverClient (resolve pillar links) and LoginNotificationClient (login notifications) to call ipie-iam-service/ipie-user-service. Granted only PILLAR_LINK_RESOLVE and LOGIN_NOTIFY.",
+      "protocolMappers": [
+        {
+          "name": "realm-roles-to-permissions-claim",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "claim.name": "permissions",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "ipie-web-sso",
+      "name": "iPIE Web - pillar SSO (local dev)",
+      "enabled": true,
+      "publicClient": true,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/sso/callback"
+      ],
+      "webOrigins": [
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "description": "Public, PKCE-only client for LoginPage's pillar-SSO redirect and SsoCallbackPage's code exchange. No client secret - a public SPA client must never hold one."
+    }
+  ],
+  "authenticationFlows": [
+    {
+      "alias": "ipie-pillar-first-broker-login",
+      "description": "Replaces Keycloak's default first-broker-login with ipie-keycloak-spi's PillarLinkResolverAuthenticator - succeeds only if an explicit link exists in pillar_links (see PillarLinkService.completeLinkCallback).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "ipie-pillar-link-resolver",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        }
+      ]
+    },
+    {
+      "alias": "ipie-browser",
+      "description": "Browser login. Mirrors Keycloak's built-in browser flow, with the password step replaced by ipie-auth-username-password-form, which validates against ipie-iam-service - Keycloak stores no password.",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "flowAlias": "ipie-browser-forms",
+          "requirement": "ALTERNATIVE",
+          "priority": 30,
+          "userSetupAllowed": false,
+          "autheticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "ipie-browser-forms",
+      "description": "Username/password, then conditional OTP.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "ipie-auth-username-password-form",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "flowAlias": "ipie-browser-conditional-otp",
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "ipie-browser-conditional-otp",
+      "description": "OTP, only for users who have one configured.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        }
+      ]
+    },
+    {
+      "alias": "ipie-direct-grant",
+      "description": "Resource-owner password grant - the flow ipie-web's login page uses. Password validated by ipie-direct-grant-validate-password against ipie-iam-service.",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "direct-grant-validate-username",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "ipie-direct-grant-validate-password",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "flowAlias": "ipie-direct-grant-conditional-otp",
+          "requirement": "CONDITIONAL",
+          "priority": 30,
+          "userSetupAllowed": false,
+          "autheticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "ipie-direct-grant-conditional-otp",
+      "description": "OTP, only for users who have one configured.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "authenticator": "direct-grant-validate-otp",
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "ibbi",
+      "displayName": "IBBI",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "ipie-pillar-first-broker-login",
+      "config": {
+        "clientId": "ipie-broker",
+        "clientSecret": "ipie-broker-secret",
+        "authorizationUrl": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock/protocol/openid-connect/auth",
+        "tokenUrl": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock/protocol/openid-connect/token",
+        "jwksUrl": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock/protocol/openid-connect/certs",
+        "issuer": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock",
+        "userInfoUrl": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock/protocol/openid-connect/userinfo",
+        "logoutUrl": "http://keycloak-ibbi-mock:9091/realms/ibbi-mock/protocol/openid-connect/logout",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "syncMode": "IMPORT",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid"
+      }
+    },
+    {
+      "alias": "nclt",
+      "displayName": "NCLT",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "ipie-pillar-first-broker-login",
+      "config": {
+        "clientId": "ipie-broker",
+        "clientSecret": "ipie-broker-secret",
+        "authorizationUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/auth",
+        "tokenUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/token",
+        "jwksUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/certs",
+        "issuer": "http://keycloak-nclt-mock:9092/realms/nclt-mock",
+        "userInfoUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/userinfo",
+        "logoutUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/logout",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "syncMode": "IMPORT",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid"
+      }
+    },
+    {
+      "alias": "nclat",
+      "displayName": "NCLAT",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "ipie-pillar-first-broker-login",
+      "config": {
+        "clientId": "ipie-broker",
+        "clientSecret": "ipie-broker-secret",
+        "authorizationUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/auth",
+        "tokenUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/token",
+        "jwksUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/certs",
+        "issuer": "http://keycloak-nclt-mock:9092/realms/nclt-mock",
+        "userInfoUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/userinfo",
+        "logoutUrl": "http://keycloak-nclt-mock:9092/realms/nclt-mock/protocol/openid-connect/logout",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "syncMode": "IMPORT",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid"
+      }
+    },
+    {
+      "alias": "mca",
+      "displayName": "MCA",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "ipie-pillar-first-broker-login",
+      "config": {
+        "clientId": "ipie-broker",
+        "clientSecret": "ipie-broker-secret",
+        "authorizationUrl": "http://keycloak-mca-mock:9093/realms/mca-mock/protocol/openid-connect/auth",
+        "tokenUrl": "http://keycloak-mca-mock:9093/realms/mca-mock/protocol/openid-connect/token",
+        "jwksUrl": "http://keycloak-mca-mock:9093/realms/mca-mock/protocol/openid-connect/certs",
+        "issuer": "http://keycloak-mca-mock:9093/realms/mca-mock",
+        "userInfoUrl": "http://keycloak-mca-mock:9093/realms/mca-mock/protocol/openid-connect/userinfo",
+        "logoutUrl": "http://keycloak-mca-mock:9093/realms/mca-mock/protocol/openid-connect/logout",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "syncMode": "IMPORT",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid"
+      }
+    },
+    {
+      "alias": "nesl",
+      "displayName": "NeSL",
+      "providerId": "oidc",
+      "enabled": true,
+      "trustEmail": false,
+      "storeToken": false,
+      "addReadTokenRoleOnCreate": false,
+      "authenticateByDefault": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "ipie-pillar-first-broker-login",
+      "config": {
+        "clientId": "ipie-broker",
+        "clientSecret": "ipie-broker-secret",
+        "authorizationUrl": "http://keycloak-nesl-mock:9094/realms/nesl-mock/protocol/openid-connect/auth",
+        "tokenUrl": "http://keycloak-nesl-mock:9094/realms/nesl-mock/protocol/openid-connect/token",
+        "jwksUrl": "http://keycloak-nesl-mock:9094/realms/nesl-mock/protocol/openid-connect/certs",
+        "issuer": "http://keycloak-nesl-mock:9094/realms/nesl-mock",
+        "userInfoUrl": "http://keycloak-nesl-mock:9094/realms/nesl-mock/protocol/openid-connect/userinfo",
+        "logoutUrl": "http://keycloak-nesl-mock:9094/realms/nesl-mock/protocol/openid-connect/logout",
+        "useJwksUrl": "true",
+        "validateSignature": "true",
+        "syncMode": "IMPORT",
+        "clientAuthMethod": "client_secret_post",
+        "defaultScope": "openid"
+      }
+    }
+  ],
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername and notEmail",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "browserFlow": "ipie-browser",
+  "directGrantFlow": "ipie-direct-grant"
+}

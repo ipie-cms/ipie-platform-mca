@@ -1,0 +1,47 @@
+// Publishing convention for the artifacts a service consumes when it builds OUTSIDE this
+// monorepo: ipie-common-libs and ipie-parent.
+//
+// Inside the monorepo nothing changes - services still resolve them through project(':...')
+// dependencies, so applying this plugin has no effect on how the platform builds today. It only
+// adds the publish* tasks. That is deliberate: publishing is a prerequisite for repo-per-service
+// (master standards doc, 13.3 item 5 - "once services stop building from this monorepo, adding
+// something here will need an explicit version bump"), and it is safer to land the mechanism while
+// everything is still one build and verifiable in one command.
+//
+// Target is GitHub Packages, because the code already lives on GitHub and it needs no separate
+// infrastructure to stand up. Swapping to Nexus/Artifactory later is a change to the `repositories`
+// block below and nothing else.
+
+plugins {
+    id 'maven-publish'
+}
+
+// A sources jar makes the published artifact debuggable in a consuming service. Javadoc is
+// deliberately not published: these libraries carry their explanation in Javadoc comments read in
+// the IDE, and a javadoc jar would double publish time for no reader.
+//
+// Guarded on the `java` plugin because this convention is also applied to ipie-parent, a
+// java-platform module that has no `java` extension to configure.
+pluginManager.withPlugin('java') {
+    java {
+        withSourcesJar()
+    }
+}
+
+publishing {
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri(providers.gradleProperty('ipie.publish.url')
+                    .orElse('https://maven.pkg.github.com/ipie-cms/ipie-platform-mca'))
+            credentials {
+                // Supplied by CI (GITHUB_ACTOR / GITHUB_TOKEN). Locally, set ipie.publish.user and
+                // ipie.publish.token in ~/.gradle/gradle.properties - never in the repo.
+                username = providers.gradleProperty('ipie.publish.user')
+                        .orElse(providers.environmentVariable('GITHUB_ACTOR')).getOrElse('')
+                password = providers.gradleProperty('ipie.publish.token')
+                        .orElse(providers.environmentVariable('GITHUB_TOKEN')).getOrElse('')
+            }
+        }
+    }
+}

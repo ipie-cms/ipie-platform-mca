@@ -1,0 +1,68 @@
+plugins {
+    id 'groovy-gradle-plugin'
+    id 'maven-publish'
+}
+
+// Published so a service building OUTSIDE this monorepo can apply the same ipie.* conventions -
+// the last piece of the repo-per-service prerequisite. As buildSrc/ these plugins were invisible
+// beyond their own build, which is why an extracted service could not compile.
+group = 'in.gov.ipie'
+
+// An included build does NOT inherit the root gradle.properties, so providers.gradleProperty here
+// sees nothing and the artifact would publish as 0.0.0-LOCAL while ipie-common-libs and ipie-parent
+// publish the real version - three artifacts meant to be consumed together, versioned apart. Read
+// the root file directly so `version` stays declared in exactly one place.
+version = {
+    File rootProps = layout.projectDirectory.file('../gradle.properties').asFile
+    if (rootProps.exists()) {
+        Properties props = new Properties()
+        rootProps.withInputStream { props.load(it) }
+        String v = props.getProperty('version')
+        if (v) {
+            return v
+        }
+    }
+    return '0.0.0-LOCAL'
+}()
+
+repositories {
+    gradlePluginPortal()
+    mavenCentral()
+}
+
+dependencies {
+    // Versions pinned here are the ONLY place plugin versions are declared.
+    // Convention scripts below apply these plugins without a version so
+    // every module automatically gets the same, centrally controlled tooling.
+    implementation 'org.springframework.boot:spring-boot-gradle-plugin:3.5.16'
+    implementation 'com.github.spotbugs.snom:spotbugs-gradle-plugin:6.5.8'
+}
+
+// ipie-quality-config stays a top-level folder in this repository - it is configuration, not code,
+// and Section 3 of the standards doc lists it as such. It is copied into this plugin's resources at
+// build time so the published artifact carries the same Checkstyle/SpotBugs rules an in-repo build
+// uses. One source of truth, two delivery paths; see ipie.java-conventions for the lookup order.
+def qualityConfigSource = layout.projectDirectory.dir('../ipie-quality-config')
+
+def packageQualityConfig = tasks.register('packageQualityConfig', Copy) {
+    from qualityConfigSource
+    into layout.buildDirectory.dir('quality-config-resources/ipie-quality-config')
+}
+
+sourceSets.main.resources.srcDir(packageQualityConfig.map { it.destinationDir.parentFile })
+
+publishing {
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri(providers.gradleProperty('ipie.publish.url')
+                    .orElse('https://maven.pkg.github.com/ipie-cms/ipie-platform-mca'))
+            credentials {
+                username = providers.gradleProperty('ipie.publish.user')
+                        .orElse(providers.environmentVariable('GITHUB_ACTOR')).getOrElse('')
+                password = providers.gradleProperty('ipie.publish.token')
+                        .orElse(providers.environmentVariable('GITHUB_TOKEN')).getOrElse('')
+            }
+        }
+    }
+}

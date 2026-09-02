@@ -1,0 +1,40 @@
+// Convention for every module under ipie-common-libs. These are plain
+// Java libraries consumed as dependencies by services - never their own
+// deployable/runtime service.
+
+plugins {
+    id 'ipie.java-conventions'
+    id 'java-library'
+}
+
+// Resolves the platform BOM and shared test fixtures either way: as project dependencies inside
+// this monorepo, or as published artifacts in a service that has been extracted into its own
+// repository. Without this the plugin carried project(':ipie-parent') unconditionally and failed
+// with "Project with path ':ipie-parent' could not be found" the moment it was applied outside -
+// the coupling that publishing the plugin was supposed to remove.
+//
+// The version, when published coordinates are needed, comes from the consuming build's
+// ipiePlatformVersion property.
+def ipiePlatformCoordinate = { String artifact ->
+    rootProject.findProject(":$artifact") != null
+            ? project(":$artifact")
+            : "in.gov.ipie:$artifact:" + providers.gradleProperty('ipiePlatformVersion')
+                    .orElse(providers.provider { project.version.toString() }).get()
+}
+
+dependencies {
+    api platform(ipiePlatformCoordinate('ipie-parent'))
+    testImplementation platform(ipiePlatformCoordinate('ipie-parent'))
+    // The annotationProcessor configuration does not inherit version constraints from api's
+    // platform import - it needs its own, or versionless annotationProcessor deps (e.g. Lombok,
+    // see ipie.java-conventions.gradle) resolve with no version and fail.
+    annotationProcessor platform(ipiePlatformCoordinate('ipie-parent'))
+    testAnnotationProcessor platform(ipiePlatformCoordinate('ipie-parent'))
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core'
+    testImplementation 'org.mockito:mockito-junit-jupiter'
+    // Gradle's embedded test launcher needs a version-aligned junit-platform-launcher on the
+    // classpath explicitly, or test discovery fails against newer JUnit Jupiter releases.
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
