@@ -1,0 +1,4 @@
+# The provider jar is a build output of ipie-iam-service, copied in here before `docker compose
+# up` - see README.md. Tracking it would commit a binary that goes stale the moment the SPI
+# changes, and reintroduce the cross-repository coupling the split removed.
+*.jar

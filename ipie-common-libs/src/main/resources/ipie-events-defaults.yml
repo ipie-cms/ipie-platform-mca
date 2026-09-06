@@ -1,0 +1,30 @@
+# Event-consumer defaults, loaded via @PropertySource on DeadLetterAutoConfiguration so a service's
+# own application.yml still wins.
+#
+# These settings are what turn the dead-letter topology into actual behaviour. Without them a
+# consumer that throws gets the message back immediately and forever - Spring AMQP requeues a
+# rejected message by default - so a single unprocessable event spins one consumer at full CPU and
+# blocks everything behind it, while nothing is ever dead-lettered.
+
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        # Reject rather than requeue once the retries below are spent. This is the setting that
+        # sends the message to ipie.events.dlx; leave it true and nothing ever reaches the DLQ.
+        #
+        # Deliberately NOT made overridable, unlike the retry budget below. It is not a tuning knob
+        # with a worse and a better setting - the other value is simply broken: an unprocessable
+        # message returns immediately and forever, spinning one consumer at full CPU and blocking
+        # every message behind it, while the DLQ stays empty and nothing alerts. An environment
+        # variable able to do that is a footgun with no legitimate use.
+        default-requeue-rejected: false
+        retry:
+          # In-process retries first, for the failure that is merely transient - a brief database
+          # blip, a dependency restarting. Only a message that survives all of these is set aside,
+          # so the DLQ stays a signal rather than noise.
+          enabled: ${IPIE_EVENTS_RETRY_ENABLED:true}
+          max-attempts: ${IPIE_EVENTS_RETRY_MAX_ATTEMPTS:3}
+          initial-interval: ${IPIE_EVENTS_RETRY_INITIAL_INTERVAL:1s}
+          multiplier: ${IPIE_EVENTS_RETRY_MULTIPLIER:2}
+          max-interval: ${IPIE_EVENTS_RETRY_MAX_INTERVAL:10s}

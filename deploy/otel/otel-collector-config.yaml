@@ -1,0 +1,92 @@
+# OpenTelemetry Collector - the single hop every service's traces pass through before reaching a
+# tracing backend.
+#
+# Services export OTLP here rather than straight to Jaeger, which buys three things a direct export
+# cannot:
+#
+#   1. Redaction. Personal data is stripped here, once, before telemetry leaves the service trust
+#      boundary - rather than each service getting it right in-process (DPDP).
+#   2. Tail sampling. Keeping "every trace that errored" is impossible with head sampling, because
+#      the service decides before it knows the outcome. Only something that sees the whole trace
+#      can make that call.
+#   3. Swappability. Moving to Tempo or a managed backend changes this file, not every service.
+#
+# Services reach it on 4317 (gRPC) / 4318 (HTTP) - the same ports Jaeger used to publish, so
+# IPIE_OTLP_ENDPOINT keeps its shape. Jaeger now receives only from this collector, over the
+# Compose network.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Must come first: it sheds load before anything else allocates on a burst.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  # DPDP: no personal data in telemetry. Hash what is needed to correlate a trace to a user,
+  # delete what is not needed at all. Extend this list as spans gain attributes - it is the one
+  # place to do it.
+  attributes/redact:
+    actions:
+      - key: enduser.id
+        action: hash
+      - key: user.id
+        action: hash
+      - key: user.email
+        action: delete
+      - key: user.phone
+        action: delete
+      - key: http.request.header.authorization
+        action: delete
+      - key: db.statement.parameters
+        action: delete
+
+  # Decides once the whole trace has arrived. Order of policies does not matter - a trace is kept
+  # if ANY policy matches.
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 50000
+    policies:
+      - name: keep-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      # 100% locally, matching the template's head sampling so every trace stays visible while
+      # developing. DEV/UAT/PROD lower this - that is the whole point of deciding here rather than
+      # in the service.
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 100
+
+  # Last: batching after sampling means only kept spans are batched.
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true   # in-network hop on the Compose bridge; TLS terminates at the edge in DEV+
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, tail_sampling, batch]
+      exporters: [otlp/jaeger]
+  telemetry:
+    logs:
+      level: info

@@ -1,0 +1,16 @@
+# Auto-provisions the Prometheus datasource on Grafana startup, so a developer doesn't have to
+# click through the "Add data source" UI manually on every fresh stack (Grafana scans this whole
+# directory tree - see docker-compose.yml's grafana service, which mounts deploy/grafana/provisioning).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # Fixed rather than auto-generated, so provisioned dashboards (see
+    # deploy/grafana/provisioning/dashboards) can reference this datasource by a stable uid
+    # instead of one that changes on every fresh Grafana volume.
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

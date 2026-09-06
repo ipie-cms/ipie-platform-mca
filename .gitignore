@@ -1,0 +1,82 @@
+Set-Content .gitignore @"
+# Build outputs
+build/
+out/
+bin/
+
+# Gradle
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+
+# JMeter results
+deploy/jmeter/results/
+
+
+# Word temp files
+~`$*
+"@
+*.docx
+*.md
+scaffold-services.ps1
+!README.md
+
+# The platform standards are tracked here - this repository is their source of truth, and each
+# extracted service carries a copy. The .md ONLY: it is the source, it diffs and greps in review,
+# and it is what a reviewer can actually read in a pull request. The .docx generated from it stays
+# on disk and out of git, with every other generated deliverable - a .docx is a zip, so its text is
+# compressed and nothing inside one can be audited by grep. Regenerate the .docx from the .md and
+# never the reverse; that discipline is what stopped the previous .docx falling three versions
+# behind, and it still applies now that only the source is version controlled.
+!MASTER_CODE_STANDARDS.md
+
+# The class reference is a handover document like the standards beside it, and the blanket *.md rule
+# above had been hiding it: every copy existed on disk, none was tracked, so an edit to it could
+# never reach a reviewer. Un-ignored by name for the same reason MASTER_CODE_STANDARDS.md is.
+!SERVICE_CLASS_REFERENCE.md
+
+# The troubleshooting runbook: every failure that has cost time, by symptom, with the fix that
+# worked. Tracked for the same reason as the standards - it is only useful if it reaches the person
+# hitting the problem, which means it travels with the repository rather than living on a wiki
+# nobody opens mid-incident.
+!TROUBLESHOOTING.md
+
+# The cross-service architecture document, tracked for the same reason and in the .md only.
+# It lives at the root rather than in docs/ because /docs/ is ignored outright below - see
+# that rule's comment. Same discipline: .md is the source, regenerate the .docx from it, and the
+# .docx it produces is a local deliverable rather than something git carries.
+!Architecture_Plan.md
+
+# The working plan: staged checkboxes, open questions, and the decisions the platform is built from
+# - the credential authority, D6's shared schema, asynchronous provisioning, and Stage 10's
+# access-control model. Tracked because it spent its life untracked in the directory above the
+# repositories, on one machine with no history, while everything around it was version controlled.
+# It is what a resumed session reads first.
+#
+# NOT the same document as Architecture_Plan.md above, which is the narrower cross-service
+# description, and it cannot be named ARCHITECTURE_PLAN.md: this filesystem is case-insensitive, so
+# that name at the root is that other file. The name says "working" because that is the difference -
+# one describes the platform, the other tracks what is decided and what is still open.
+!ARCHITECTURE_WORKING_PLAN.md
+
+
+# Generated docs folder (docx deliverables)
+/docs/
+
+# CONFIDENTIAL - never commit, in any repository. The governing RFP (GeM bid GEM/2025/B/6668497)
+# is a local-only document. This rule sits AFTER every negation above so it wins: docs/*.docx is
+# un-ignored in a service repository, which would otherwise let a copy dropped into docs/ be
+# committed by accident.
+*RFP*
+*rfp*.docx
+

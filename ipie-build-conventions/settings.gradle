@@ -1,0 +1,4 @@
+// An included build needs its own settings file. Was buildSrc/, which Gradle treats specially and
+// which is invisible outside its own build - the reason a service could not apply ipie.* conventions
+// once it left this monorepo. As an included build it is an ordinary project that can also publish.
+rootProject.name = 'ipie-build-conventions'

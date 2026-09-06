@@ -1,0 +1,71 @@
+# Loaded by IpieResilienceAutoConfiguration via @PropertySource at the LOWEST precedence (Spring
+# adds @PropertySource entries after the environment's existing sources, so a consuming service's
+# own application.yml / application-local.yml / env vars always win over these). Any
+# @CircuitBreaker(name=...)/@Retry(name=...)/@Bulkhead(name=...)/@TimeLimiter(name=...) instance
+# name that a service does not explicitly configure under resilience4j.*.instances.<name>
+# inherits this "default" config - the same mechanism resilience4j itself uses, see
+# Development_Environment_Configuration.md, Section 15, Resilience.
+resilience4j:
+  retry:
+    configs:
+      default:
+        max-attempts: ${IPIE_RETRY_MAX_ATTEMPTS:3}
+        wait-duration: ${IPIE_RETRY_WAIT_DURATION:200ms}
+        enable-exponential-backoff: ${IPIE_RETRY_EXPONENTIAL_BACKOFF_ENABLED:true}
+        exponential-backoff-multiplier: ${IPIE_RETRY_EXPONENTIAL_MULTIPLIER:2.0}
+        exponential-max-wait-duration: ${IPIE_RETRY_EXPONENTIAL_MAX_WAIT:5s}
+        # Jitter (Retry Backoff): randomizes each computed backoff interval so retries from many
+        # callers don't all land on the same instant against an already-struggling dependency.
+        enable-randomized-wait: ${IPIE_RETRY_RANDOMIZED_WAIT_ENABLED:true}
+        randomized-wait-factor: ${IPIE_RETRY_RANDOMIZED_WAIT_FACTOR:0.5}
+        # Retry (allowlist, not blocklist): only these are ever retried - a functional/business
+        # error (e.g. a 4xx-style rejection) is never one of these, so it is never retried.
+        #
+        # Deliberately NOT made overridable. This is a policy about what is safe to repeat, not a
+        # budget to tune: widening it is how a non-idempotent call comes to be retried. A service
+        # that genuinely needs a different set states its own list, where the change is visible in
+        # review rather than set by an environment variable nobody reads.
+        retry-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - in.gov.ipie.common.resilience.exception.TransientDependencyException
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: ${IPIE_CIRCUITBREAKER_SLIDING_WINDOW_TYPE:COUNT_BASED}
+        sliding-window-size: ${IPIE_CIRCUITBREAKER_SLIDING_WINDOW_SIZE:10}
+        minimum-number-of-calls: ${IPIE_CIRCUITBREAKER_MINIMUM_CALLS:5}
+        failure-rate-threshold: ${IPIE_CIRCUITBREAKER_FAILURE_RATE_THRESHOLD:50}
+        wait-duration-in-open-state: ${IPIE_CIRCUITBREAKER_WAIT_IN_OPEN_STATE:10s}
+        permitted-number-of-calls-in-half-open-state: ${IPIE_CIRCUITBREAKER_HALF_OPEN_CALLS:3}
+        automatic-transition-from-open-to-half-open-enabled: ${IPIE_CIRCUITBREAKER_AUTO_HALF_OPEN:true}
+        register-health-indicator: ${IPIE_CIRCUITBREAKER_HEALTH_INDICATOR:true}
+        record-exceptions:
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+          - in.gov.ipie.common.resilience.exception.TransientDependencyException
+  bulkhead:
+    configs:
+      default:
+        # Bulkhead: caps concurrent calls into one dependency so its exhaustion cannot exhaust
+        # the calling service's own capacity to serve unrelated requests.
+        max-concurrent-calls: ${IPIE_BULKHEAD_MAX_CONCURRENT_CALLS:10}
+        max-wait-duration: ${IPIE_BULKHEAD_MAX_WAIT_DURATION:0}
+  timelimiter:
+    configs:
+      default:
+        timeout-duration: ${IPIE_TIMELIMITER_TIMEOUT:5s}
+        cancel-running-future: ${IPIE_TIMELIMITER_CANCEL_RUNNING_FUTURE:true}
+  ratelimiter:
+    configs:
+      default:
+        # Self-throttling to contain blast radius (a misbehaving/compromised caller, or a
+        # cascading-failure scenario) - not a substitute for gateway/mesh-level rate limiting,
+        # which is a platform/infra concern this shared default cannot see across services.
+        limit-for-period: ${IPIE_RATELIMITER_LIMIT_FOR_PERIOD:20}
+        limit-refresh-period: ${IPIE_RATELIMITER_REFRESH_PERIOD:1s}
+        # 0s (not resilience4j's own 5s default): a rejected permit fails fast so the caller's own
+        # Retry/CircuitBreaker layer (see common-client's DefaultInterServiceClient) sees it
+        # immediately, rather than blocking a thread waiting for a permit that may never free up
+        # under sustained load.
+        timeout-duration: ${IPIE_RATELIMITER_TIMEOUT:0s}

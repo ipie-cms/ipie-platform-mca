@@ -1,0 +1,74 @@
+<!--
+    Shared structured-logging appender (master standards doc, 5.6). A service's own
+    logback-spring.xml includes this fragment instead of redefining the JSON shape itself:
+
+        <include resource="META-INF/ipie/logback-json-console-appender.xml"/>
+        <root level="INFO"><appender-ref ref="JSON_CONSOLE"/></root>
+
+    SERVICE_NAME and IPIE_ENVIRONMENT are expected to be defined as Spring/system properties by
+    the including logback-spring.xml before this file is included.
+-->
+<included>
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>correlationId</includeMdcKeyName>
+            <!-- traceId/spanId are populated automatically by Spring Boot's tracing
+                 auto-configuration once a bridge (OpenTelemetry) is on the classpath - see
+                 common-observability's dependency on micrometer-tracing-bridge-otel. -->
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
+            <includeMdcKeyName>userId</includeMdcKeyName>
+            <includeMdcKeyName>caseId</includeMdcKeyName>
+            <customFields>{"service":"${SERVICE_NAME:-unknown-service}","environment":"${IPIE_ENVIRONMENT:-local}"}</customFields>
+        </encoder>
+    </appender>
+
+    <!-- ELK transport. Active only under the `elk` Spring profile - a laptop running a service
+         with no Logstash to talk to would otherwise get a reconnect warning every few seconds
+         forever. docker-compose.services.yml sets SPRING_PROFILES_ACTIVE=elk; local host-JVM runs
+         (start-ipie.sh) deliberately do not.
+
+         Why the services push instead of a shipper tailing their stdout: on Docker Desktop's WSL2
+         backend the daemon's container-log directory is inside the docker-desktop VM and is not
+         reachable from a container by any bind mount (verified 2026-08-21), which rules out
+         Filebeat, Fluent Bit and the OTel collector's filelog receiver in this environment.
+
+         LogstashTcpSocketAppender ships in logstash-logback-encoder - the same JAR this file
+         already uses for LogstashEncoder - so this needs no new dependency. It is asynchronous
+         (a ring buffer on its own thread): if Logstash is down it retries in the background and
+         drops events once the buffer fills, rather than blocking the application thread. Losing
+         a shipped copy is acceptable; JSON_CONSOLE below still has the line, so nothing is ever
+         lost outright. -->
+    <springProfile name="elk">
+        <appender name="LOGSTASH_TCP" class="net.logstash.logback.appender.LogstashTcpSocketAppender">
+            <destination>${IPIE_LOGSTASH_DESTINATION:-logstash:5044}</destination>
+            <!-- Same field set as JSON_CONSOLE, deliberately: a line must not gain or lose fields
+                 depending on which sink it went to, or a Kibana query and a `docker compose logs`
+                 grep disagree about the same event. -->
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <includeMdcKeyName>userId</includeMdcKeyName>
+                <includeMdcKeyName>caseId</includeMdcKeyName>
+                <customFields>{"service":"${SERVICE_NAME:-unknown-service}","environment":"${IPIE_ENVIRONMENT:-local}"}</customFields>
+            </encoder>
+        </appender>
+
+        <!-- Attached here, not in each service's <root>, for two reasons. Architectural: the ELK
+             wiring is one platform concern and belongs in one file, so a service cannot half-adopt
+             it. Mechanical: Spring Boot REJECTS <springProfile> nested inside <root>/<logger>/
+             <appender> - it logs "springProfile elements cannot be nested within an appender,
+             logger or root element" as a WARN and then silently ignores the block, so the appender
+             is defined but never attached and not one line is ever shipped. That failure is
+             invisible unless you read Logback's own startup status output. Nesting the other way
+             round - <root> inside <springProfile> - is the supported form.
+
+             Logback accumulates appender-refs across multiple <root> elements rather than
+             replacing them, so this adds LOGSTASH_TCP alongside whatever the including
+             logback-spring.xml attaches to root; JSON_CONSOLE is unaffected. -->
+        <root>
+            <appender-ref ref="LOGSTASH_TCP"/>
+        </root>
+    </springProfile>
+</included>

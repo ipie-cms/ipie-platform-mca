@@ -1,0 +1,13 @@
+# Observability defaults applied to every service that pulls in common-observability. Loaded via
+# @PropertySource on ObservabilityAutoConfiguration, so it sits *below* a service's own
+# application.yml in precedence - any service can override without touching this file.
+
+server:
+  tomcat:
+    mbeanregistry:
+      # Off by default in Spring Boot, and without it Micrometer publishes no tomcat.threads.*
+      # metrics at all - only tomcat.sessions.*. That gap hides the one signal that shows a service
+      # saturating: busy threads approaching max, with requests queueing behind them. A load test
+      # that measures only latency cannot distinguish "slow" from "out of threads"; this is what
+      # makes the difference visible in Prometheus and Grafana.
+      enabled: true

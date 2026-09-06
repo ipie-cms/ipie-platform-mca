@@ -1,0 +1,59 @@
+// Convention for every deployable backend microservice. Applied by
+// ipie-service-template and, by extension, by every service created from
+// it - this is what makes a folder an approved iPIE microservice instead
+// of an arbitrary Spring Boot app.
+
+plugins {
+    id 'ipie.java-conventions'
+    id 'org.springframework.boot'
+}
+
+// Deliberately not applying io.spring.dependency-management: it rewrites dependency versions
+// across every configuration in the project (including tool configurations like SpotBugs' own
+// analysis classpath, which breaks - see the force in ipie.java-conventions.gradle for the
+// history), with no supported way to scope it down. ipie-parent already re-exports the Spring
+// Boot BOM through Gradle's native, correctly-scoped platform() mechanism below, so nothing is
+// lost by leaving the plugin out.
+
+// Resolves the platform BOM and shared test fixtures either way: as project dependencies inside
+// this monorepo, or as published artifacts in a service that has been extracted into its own
+// repository. Without this the plugin carried project(':ipie-parent') unconditionally and failed
+// with "Project with path ':ipie-parent' could not be found" the moment it was applied outside -
+// the coupling that publishing the plugin was supposed to remove.
+//
+// The version, when published coordinates are needed, comes from the consuming build's
+// ipiePlatformVersion property.
+def ipiePlatformCoordinate = { String artifact ->
+    rootProject.findProject(":$artifact") != null
+            ? project(":$artifact")
+            : "in.gov.ipie:$artifact:" + providers.gradleProperty('ipiePlatformVersion')
+                    .orElse(providers.provider { project.version.toString() }).get()
+}
+
+dependencies {
+    implementation platform(ipiePlatformCoordinate('ipie-parent'))
+    testImplementation platform(ipiePlatformCoordinate('ipie-parent'))
+    // The annotationProcessor configuration does not inherit version constraints from
+    // implementation's platform import - it needs its own, or annotationProcessor deps
+    // (e.g. mapstruct-processor, Lombok) resolve with no version and fail.
+    annotationProcessor platform(ipiePlatformCoordinate('ipie-parent'))
+    testAnnotationProcessor platform(ipiePlatformCoordinate('ipie-parent'))
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'com.tngtech.archunit:archunit-junit5'
+    // testFixtures(project(...)) in-repo; the published equivalent is the test-fixtures classifier.
+    testImplementation rootProject.findProject(':ipie-common-libs') != null
+            ? testFixtures(project(':ipie-common-libs'))
+            : "in.gov.ipie:ipie-common-libs:" + providers.gradleProperty('ipiePlatformVersion')
+                    .orElse(providers.provider { project.version.toString() }).get() + ":test-fixtures"
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('bootJar') {
+    archiveFileName = "${project.name}.jar"
+}
+
+tasks.named('jar') {
+    // Only the executable boot jar is published from a service module.
+    enabled = false
+}

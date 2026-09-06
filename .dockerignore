@@ -1,0 +1,11 @@
+**/build/
+.gradle/
+.idea/
+*.iml
+**/*.log
+.git/
+.github/
+docker/
+docker-compose*.yml
+**/node_modules/
+**/dist/

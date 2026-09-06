@@ -1,0 +1,15 @@
+// Applies the PUBLISHED convention plugin, exactly as an extracted service would.
+plugins {
+    id 'ipie.java-conventions'
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+// ipie.java-conventions declares versionless Lombok, so a consumer must import the published BOM.
+dependencies {
+    implementation platform("in.gov.ipie:ipie-parent:${property('ipiePlatformVersion')}")
+    annotationProcessor platform("in.gov.ipie:ipie-parent:${property('ipiePlatformVersion')}")
+}

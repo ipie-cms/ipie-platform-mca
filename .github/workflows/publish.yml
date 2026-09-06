@@ -1,0 +1,47 @@
+# Publishes ipie-common-libs and ipie-parent to GitHub Packages.
+#
+# Deliberately NOT triggered by every push to master. A service outside this monorepo depends on a
+# fixed version, so publishing is a release action, not a side effect of merging - the whole point
+# of leaving the monorepo is that a consumer chooses when to take a change. Bump `version` in
+# gradle.properties, tag, and this runs.
+#
+# workflow_dispatch is kept so a SNAPSHOT can be pushed on demand while the repo-per-service
+# migration is still in progress and no real tags exist yet.
+name: publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # required for GitHub Packages
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Never publish something that does not pass the same gate as a merge. A broken artifact is
+      # worse than a missing one: with Renovate bumping consumers automatically, it propagates.
+      - name: Quality gate
+        run: ./gradlew qualityCheck --no-daemon
+
+      - name: Publish to GitHub Packages
+        run: ./gradlew :ipie-common-libs:publish :ipie-parent:publish --no-daemon
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

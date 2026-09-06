@@ -1,0 +1,164 @@
+# The three iPIE services as containers.
+#
+# Deliberately separate from ipie-platform-mca/docker-compose.yml: that file is the infrastructure
+# stack and, since the 2026-08-09 split, builds nothing. This one builds the services from their
+# own repositories and joins them to the network that stack already created.
+#
+#   docker compose -f docker-compose.services.yml up -d --build
+#   docker compose -f docker-compose.services.yml logs -f
+#   docker compose -f docker-compose.services.yml down
+#
+# Start the infrastructure first (start-ipie.sh does step 1 for you), or the network below will not
+# exist yet.
+#
+# Two things reach OUT of the container to the Windows host, both via host-gateway:
+#   - Postgres, which runs on the host rather than in compose.
+#   - Keycloak, the host install at D:\keycloak-26.6.3. The alias must be `keycloak` specifically,
+#     not host.docker.internal: Keycloak stamps http://keycloak:8080 into every token's `iss`, and
+#     the services validate against exactly that string.
+
+name: ipie-services
+
+x-service-base: &service-base
+  restart: unless-stopped
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+    - "keycloak:host-gateway"
+  networks: [platform]
+  environment: &env-base
+    # Per-service credentials are set on each service below (Stage 5, item 1): each connects as its
+    # own least-privilege app role, and runs Flyway as its own owner role. Nothing shared here, so
+    # that no service inherits another's access by accident.
+    SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://keycloak:8080/realms/ipie
+    IPIE_KEYCLOAK_BASE_URL: http://keycloak:8080
+    IPIE_KEYCLOAK_REALM: ipie
+    # Empty by default, which fails every browser call with "Invalid CORS request" while curl still
+    # works - see ipie-web's dev server origin.
+    IPIE_CORS_ALLOWED_ORIGINS: http://localhost:5173
+    # In-network name: the default is localhost:4318, which inside a container is the container
+    # itself. Traces go to the collector, never straight to Jaeger.
+    IPIE_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
+    # Turns on the LOGSTASH_TCP appender in common-observability's shared logback fragment, so
+    # this container's logs reach Kibana as well as stdout. Left OFF for host-JVM runs
+    # (start-ipie.sh): without a Logstash to reach, the appender reconnect-warns forever.
+    # If this platform ever adopts a real Spring profile, append to this value - do not replace
+    # it, or logs silently stop being shipped.
+    SPRING_PROFILES_ACTIVE: elk
+    # In-network name, same reasoning as IPIE_OTLP_ENDPOINT above: the fragment's default
+    # (logstash:5044) is already correct here, set explicitly so the dependency is greppable.
+    IPIE_LOGSTASH_DESTINATION: logstash:5044
+    # Unset by default, which silently downgrades event publishing to the logging reference
+    # implementation - the outbox fills, nothing is delivered, and cross-service flows that depend
+    # on an event (registration OTP email, default role assignment) simply never complete. Setting
+    # it activates the RabbitMQ publisher; see EventPublisherConfig's Kafka > RabbitMQ > logging
+    # precedence.
+    SPRING_RABBITMQ_HOST: rabbitmq
+    # Shared secret for HMAC-signed inter-service calls. It has no default anywhere on purpose -
+    # there is no safe default for a real shared secret - but signing is enabled by default, so
+    # leaving it unset makes every user-service -> iam-service call fail with
+    # "IllegalArgumentException: Empty key" and a 500. That breaks registration completion, which
+    # is the only cross-service write path. The signing and verifying side must carry the same
+    # value, hence its place in the shared block. Local development value only: real environments
+    # take it from the secrets manager.
+    IPIE_SECURITY_HMAC_KEY_USER_TO_IAM: local-dev-user-to-iam-shared-secret
+    # Verifier side of the ipie-keycloak-spi -> iam signature, for the protected paths that
+    # SPI calls: /internal/pillar-links/resolve and /internal/credentials/verify.
+    # Keycloak's own process must carry a matching IPIE_SPI_HMAC_SECRET, or every one of those
+    # calls fails with "Empty key" and a 500 - which surfaces as a failed login, not as a
+    # configuration error.
+    IPIE_SECURITY_HMAC_KEY_SPI_TO_IAM: local-dev-spi-to-iam-shared-secret
+
+# The platform build (ipie-parent, ipie-common-libs, ipie-build-conventions) resolves from the
+# host's Maven Local, which an isolated build container cannot otherwise see. Each Dockerfile binds
+# this as `from=m2`; publish the platform with ./gradlew publishToMavenLocal before building.
+x-m2: &m2
+  m2: ${HOME}/.m2/repository
+
+services:
+  ipie-user-service:
+    <<: *service-base
+    build:
+      context: ../ipie-user-service
+      additional_contexts: *m2
+    ports: ["8092:8080"]
+    environment:
+      <<: *env-base
+      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/ipie_user_service
+      # Runtime: DML on this service's own tables only. It cannot read user_credentials or
+      # credential_setup_tokens - that boundary (ARCHITECTURE_WORKING_PLAN.md §4.1.1) is a convention in the
+      # code and a grant in the database, and only the grant survives a mistake.
+      SPRING_DATASOURCE_USERNAME: ipie_user_service_app
+      SPRING_DATASOURCE_PASSWORD: local-dev-user-app
+      # Migrations: DDL, owns the tables. Local development values; deployed environments take all
+      # four from the secrets manager. Roles come from deploy/postgres/roles/01-create-roles.sql.
+      SPRING_FLYWAY_USER: ipie_user_service_owner
+      SPRING_FLYWAY_PASSWORD: local-dev-user-owner
+      # /api/v1/registrations/** is capped at 5/min by design. A load or registration test raises it
+      # for the run (threads x loops x 3) by exporting this before `up`; it is never disabled.
+      IPIE_RATE_LIMIT_REGISTRATIONS_LIMIT: ${IPIE_RATE_LIMIT_REGISTRATIONS_LIMIT:-5}
+      # Pillar (IBBI/NCLT/NCLAT/MCA/NeSL) IdP endpoints, split by who dials them. The
+      # authorization-url is followed by the *browser* and correctly stays on localhost; the token
+      # and admin URLs are back-channel calls this container makes itself, and inside a container
+      # "localhost" is the container - so application.yml's defaults resolve to nothing and the
+      # linking callback fails at the token exchange with a connection refused that reads like the
+      # mock IdP being down. The mocks publish these ports on the host, so host.docker.internal
+      # reaches them over the same gateway alias the database already uses.
+      IPIE_PILLAR_IBBI_TOKEN_URL: http://host.docker.internal:9091/realms/ibbi-mock/protocol/openid-connect/token
+      IPIE_PILLAR_IBBI_ADMIN_BASE_URL: http://host.docker.internal:9091
+      IPIE_PILLAR_NCLT_TOKEN_URL: http://host.docker.internal:9092/realms/nclt-mock/protocol/openid-connect/token
+      IPIE_PILLAR_NCLT_ADMIN_BASE_URL: http://host.docker.internal:9092
+      IPIE_PILLAR_NCLAT_TOKEN_URL: http://host.docker.internal:9092/realms/nclt-mock/protocol/openid-connect/token
+      IPIE_PILLAR_NCLAT_ADMIN_BASE_URL: http://host.docker.internal:9092
+      IPIE_PILLAR_MCA_TOKEN_URL: http://host.docker.internal:9093/realms/mca-mock/protocol/openid-connect/token
+      IPIE_PILLAR_MCA_ADMIN_BASE_URL: http://host.docker.internal:9093
+      IPIE_PILLAR_NESL_TOKEN_URL: http://host.docker.internal:9094/realms/nesl-mock/protocol/openid-connect/token
+      IPIE_PILLAR_NESL_ADMIN_BASE_URL: http://host.docker.internal:9094
+
+  ipie-iam-service:
+    <<: *service-base
+    build:
+      context: ../ipie-iam-service
+      additional_contexts: *m2
+    ports: ["8093:8080"]
+    environment:
+      <<: *env-base
+      # Shares one physical database and schema with ipie-user-service; its migrations are tracked
+      # separately in flyway_schema_history_iam.
+      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/ipie_user_service
+      # The credential authority's own roles. Sharing the database with ipie-user-service (D6) is
+      # exactly why these are separate from that service's: the schema does not enforce the
+      # boundary, the grants do.
+      SPRING_DATASOURCE_USERNAME: ipie_iam_service_app
+      SPRING_DATASOURCE_PASSWORD: local-dev-iam-app
+      SPRING_FLYWAY_USER: ipie_iam_service_owner
+      SPRING_FLYWAY_PASSWORD: local-dev-iam-owner
+
+  ipie-communication-service:
+    <<: *service-base
+    build:
+      context: ../ipie-communication-service
+      additional_contexts: *m2
+    ports: ["8094:8080"]
+    environment:
+      <<: *env-base
+      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/ipie_communication_service
+      # Own database, so no cross-service boundary to enforce - but the owner/app split still
+      # applies, and notification_log holds delivered message bodies and recipient addresses.
+      # Roles come from deploy/postgres/roles/02-create-service-roles.sql.
+      SPRING_DATASOURCE_USERNAME: ipie_communication_service_app
+      SPRING_DATASOURCE_PASSWORD: local-dev-comms-app
+      SPRING_FLYWAY_USER: ipie_communication_service_owner
+      SPRING_FLYWAY_PASSWORD: local-dev-comms-owner
+      # In-network now, rather than the localhost:1025 default that only works when the service
+      # runs on the host.
+      IPIE_MAIL_HOST: mailhog
+      IPIE_MAIL_PORT: 1025
+      # Must stay host-reachable: this goes into verification links people open in a mail client,
+      # where a container hostname would mean nothing.
+      IPIE_NOTIFICATIONS_USER_SERVICE_PUBLIC_URL: http://localhost:8092
+
+networks:
+  platform:
+    # Created by ipie-platform-mca's compose stack; external so this file never tries to own it.
+    name: ipie-platform-mca_default
+    external: true

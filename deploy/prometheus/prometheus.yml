@@ -1,0 +1,28 @@
+# Local development scrape config - NOT a deployment manifest (mirrors docker-compose.yml's own
+# disclaimer). Scrapes every microservice's Spring Boot Actuator Prometheus endpoint, which
+# common-observability wires in automatically (see ipie-common-libs/common-observability/build.gradle)
+# once a service adds "prometheus" to its own management.endpoints.web.exposure.include (see
+# ipie-service-template's application.yml for the pattern every new microservice copies).
+#
+# Adding a new microservice to the local stack? Add one more entry to scrape_configs below with
+# its own job_name and container:port target - nothing else in this file changes.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: ipie-service-template
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ipie-service-template:8080"]
+  - job_name: ipie-user-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ipie-user-service:8080"]
+  - job_name: ipie-iam-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ipie-iam-service:8080"]
+  - job_name: ipie-communication-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["ipie-communication-service:8080"]

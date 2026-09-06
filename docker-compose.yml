@@ -1,0 +1,530 @@
+# Local development / manual smoke-testing stack - NOT a deployment manifest. Matches the local
+# runtime named in Development_Environment_Configuration.md, section 2: "Docker Compose -
+# PostgreSQL, Kafka, Keycloak, Redis" plus its observability stack (section 12: Prometheus +
+# Grafana, OTel + Jaeger) - Elasticsearch and RabbitMQ are the two additions beyond that list:
+# Elasticsearch backs the "search users" read path (see UserSearchIndexConfig), RabbitMQ is a
+# standby broker for EventPublisher in case Kafka doesn't get organizational clearance (see
+# EventPublisherConfig) - not consumed alongside Kafka by default, the two are mutually exclusive
+# choices for the same port. The service runs fully secured (real JWTs validated against the
+# Keycloak realm below) - there is no ipie.security.enabled=false escape hatch here on purpose,
+# so this stack exercises the same code path a real environment does.
+#
+# Quick start:
+#   docker compose up --build
+#   TOKEN=$(curl -s -X POST http://localhost:8080/realms/ipie/protocol/openid-connect/token \
+#     -d grant_type=password -d client_id=ipie-service-template \
+#     -d client_secret=ipie-service-template-secret \
+#     -d username=testuser -d password=testpass | jq -r .access_token)
+#   curl -H "Authorization: Bearer $TOKEN" http://localhost:8091/api/v1/users
+#
+# Keycloak owns host port 8080 (matching what it advertises internally via KC_HOSTNAME below),
+# not 8091 - deliberate, so the browser-facing Keycloak Account/Admin Console can at least be
+# *reached* (add "127.0.0.1 keycloak" to your hosts file - every URL Keycloak generates uses the
+# literal hostname "keycloak", not "localhost"). ipie-service-template moved to 8091 to make room
+# (not 8081 - on Windows hosts running McAfee, its "McAfee Agent Common Services" (macmnsvc.exe)
+# binds host port 8081 for its own local IPC, silently swallowing anything sent to
+# localhost:8081 from a native Windows process/Postman before it ever reaches WSL2's Docker
+# port-forwarding - requests from inside WSL/Linux itself aren't affected, only Windows-native
+# clients. 8091 avoids the clash entirely).
+#
+# The Console still won't fully work once you sign in, even with that hosts-file entry: modern
+# browsers won't reliably keep its session cookies alive over plain HTTP on a non-"localhost"
+# hostname, and login there ends in a "Something went wrong" screen. A real fix needs Keycloak
+# served over HTTPS - which, because KC_HOSTNAME below is also the token issuer everything else
+# depends on, would mean the backend trusting a cert, ipie-web moving to HTTPS too, and every
+# curl/Postman example needing -k or a trusted cert. Investigated and deliberately not done -
+# nothing in this project actually needs the interactive Console; everything is tested via direct
+# token grants (below) instead. Revisit only if a real need for it comes up.
+#
+# Two seeded users (see deploy/keycloak/realm-export.json): "testuser" (USER_READ, USER_WRITE,
+# USER_DELETE) and "readonlyuser" (USER_READ only) - both password "testpass".
+#
+# Prefer a GUI over curl? See Development_Environment_Configuration.md's "Testing the API with
+# Postman" section for every endpoint, header, and request body needed to build requests by hand
+# in the Postman app.
+#
+# Pillar SSO federation (IBBI/NCLT/NCLAT/MCA/NeSL - NCLAT deliberately shares NCLT's own
+# mock IdP rather than getting a separate service, see application.yml's comment on it):
+# also add "127.0.0.1 keycloak-ibbi-mock", "127.0.0.1 keycloak-nclt-mock", "127.0.0.1
+# keycloak-mca-mock" and "127.0.0.1 keycloak-nesl-mock" to your hosts file, alongside the
+# "keycloak" entry above - each mock service below stands in for that agency's own identity
+# provider, and needs to be reachable by its literal name for the same reason "keycloak" does.
+# Build ipie-keycloak-spi (`./gradlew :ipie-keycloak-spi:jar`) before starting this stack - the
+# "keycloak" service mounts its jar as a custom provider, and won't apply the
+# ipie-pillar-first-broker-login flow any of these four identityProvider configs depend on
+# without it. Try it via ipie-web's "Login with IBBI"/"Login with NCLT"/etc. buttons after first
+# linking a demo account: sign in as testuser, then use its "linked accounts" screen to link (e.g.)
+# "ibbi.officer1" / "ibbi-demo-pass" (see deploy/keycloak/mock-ibbi-realm.json, or the matching
+# mock-<agency>-realm.json for the others) - only then does a subsequent "Login with <agency>"
+# succeed.
+
+services:
+  # No service is built from this repository any more. ipie-service-template, ipie-user-service,
+  # ipie-iam-service and ipie-communication-service were extracted into their own repositories on
+  # 2026-08-09 and build against this platform's published artifacts.
+  #
+  # This file is the INFRASTRUCTURE STACK: Postgres (on the host), Keycloak, RabbitMQ, Redis,
+  # Elasticsearch, MailHog, MinIO, ClamAV, OPA, Jaeger, Prometheus and Grafana. Start it here, then
+  # run each service from its own repository against it - the same treatment ipie-web has always
+  # had. A full registration flow spans ipie-user-service, ipie-iam-service and
+  # ipie-communication-service, so end-to-end testing needs those three running alongside this.
+
+  # Commented out in favor of a Postgres instance running on the host - see SPRING_DATASOURCE_URL
+  # below (uses host.docker.internal) and pgadmin's connection notes. Uncomment to go back to a
+  # Dockerized Postgres; also restore the "postgres:" entries in pgadmin's and
+  # ipie-service-template's depends_on blocks below.
+  # postgres:
+  #   image: postgres:18-alpine
+  #   environment:
+  #     POSTGRES_DB: ipie_service_template
+  #     POSTGRES_USER: ipie
+  #     POSTGRES_PASSWORD: ipie
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - ipie_postgres_data:/var/lib/postgresql
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ipie -d ipie_service_template"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+
+  otel-collector:
+    # The single hop every service's traces pass through - see deploy/otel/otel-collector-config.yaml
+    # for why (redaction, tail sampling, swappable backend). It publishes the OTLP ports that
+    # jaeger used to, so application.yml's management.otlp.tracing.endpoint keeps its shape:
+    # http://localhost:4318/v1/traces from the host, http://otel-collector:4318/v1/traces in-network.
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./deploy/otel/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+
+  jaeger:
+    # All-in-one Jaeger. Its OTLP receiver is still enabled, but is no longer published to the
+    # host: spans now arrive from otel-collector over the Compose network (jaeger:4317), and the
+    # collector owns 4317/4318 on the host instead. 16686 remains the trace-viewer UI.
+    image: jaegertracing/all-in-one:1.65.0
+    ports:
+      - "16686:16686"
+
+  prometheus:
+    # Scrapes every microservice's /actuator/prometheus endpoint - see deploy/prometheus/prometheus.yml
+    # for the scrape targets and common-observability's build.gradle for how that endpoint gets
+    # wired in automatically. Entirely independent of the jaeger service above: tracing (spans, via
+    # OTel/Jaeger) and metrics (via Prometheus) are separate Micrometer subsystems that don't
+    # share beans, endpoints, or config - adding this does not change jaeger's behaviour at all.
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    # Prometheus is auto-provisioned as a datasource on startup - see
+    # deploy/grafana/provisioning/datasources/prometheus.yml. Local-dev-only admin password (never
+    # reuse this outside a developer's own machine); set GF_SECURITY_ADMIN_PASSWORD to something
+    # else, or omit it and use Grafana's default forced-change-on-first-login flow, for anything
+    # beyond local dev.
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  redis:
+    # Backs the Spring cache abstraction (@Cacheable/@CacheEvict/@CachePut) via common-cache's
+    # IpieCacheAutoConfiguration - see ipie-service-template's SPRING_DATA_REDIS_HOST below.
+    #
+    # Pinned to 7-alpine (BSD-3) deliberately, not the newer 8-alpine: Redis 8 relicensed to a
+    # choice of RSALv2/SSPLv1/AGPLv3, which needs a compliance decision for this platform before
+    # adopting - revisit once that's made (see MASTER_CODE_STANDARDS.md).
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Commented out for now - running with RabbitMQ as the active broker instead (see
+  # SPRING_RABBITMQ_HOST below on ipie-service-template). Uncomment and switch
+  # SPRING_KAFKA_BOOTSTRAP_SERVERS back on to go back to Kafka.
+  # kafka:
+  #   image: apache/kafka:4.3.1
+  #   environment:
+  #     KAFKA_NODE_ID: 1
+  #     KAFKA_PROCESS_ROLES: broker,controller
+  #     KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+  #     KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #   ports:
+  #     - "9092:9092"
+
+  rabbitmq:
+    # Standby broker: provisioned so ipie-service-template can be pointed at RabbitMQ instead of
+    # Kafka with no code change - just set SPRING_RABBITMQ_HOST (see EventPublisherConfig /
+    # RabbitConsumerConfig) - in case Kafka doesn't get organizational clearance. Not consumed by
+    # default alongside Kafka; the two are mutually exclusive broker choices for the same
+    # EventPublisher port, not run together.
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI (http://localhost:15672, guest/guest)
+
+  mailhog:
+    # Fake SMTP catcher for ipie-communication-service's EmailService - the verification email
+    # genuinely "sends" (real SMTP protocol, port 1025) and is viewable in MailHog's own web UI
+    # (http://localhost:8025), no real provider credentials needed. Same EmailService code path
+    # points at real SMTP/SES in production via spring.mail.* env vars.
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+  minio:
+    # S3-API-compatible object store backing the FileStorage port (master standards doc,
+    # file-upload rules, section 4) - MinIO speaks the same API real AWS S3 does, so
+    # S3FileStorage works unchanged against either; only ipie.storage.s3.endpoint differs between
+    # local dev and a real deployment. Local-dev-only credentials, never reuse outside a
+    # developer's own machine.
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Web console (http://localhost:9001, minioadmin/minioadmin)
+
+  minio-init:
+    # One-shot: creates the ipie-documents bucket S3FileStorage expects, then exits - docker
+    # compose ps correctly shows this as "Exited (0)" once done, it is not meant to keep running.
+    # Retries its own connection to MinIO rather than depending on a MinIO-image-specific
+    # healthcheck tool that may or may not be bundled in a given minio/minio image variant.
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 2; done &&
+      mc mb --ignore-existing local/ipie-documents
+      "
+
+  clamav:
+    # Real virus scanner backing the VirusScanner port (master standards doc, file-upload rules,
+    # section 3) - self-hosted, no cloud/organizational approval needed (see VirusScanConfig's
+    # Javadoc for how to add a cloud-native scanner later, purely via configuration, once one is
+    # approved). First boot downloads virus definitions (freshclam) and can take several minutes
+    # plus needs internet access - DocumentService fails closed (rejects uploads with a 422) while
+    # that's in progress, rather than silently treating them as clean.
+    image: clamav/clamav:1.5
+    ports:
+      - "3310:3310"
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
+  opa:
+    # Self-hosted Open Policy Agent - backs common-client's OpaAuthorizationInterceptor
+    # (ipie.client.security.opa.enabled=true, opt-in - see that class's Javadoc and
+    # deploy/opa/policies/interservice.rego). Not enabled by default for ipie-service-template
+    # (that has no outbound inter-service call of its own yet); provisioned here, same "available
+    # but not consumed by default" status as the rabbitmq standby broker, so a new service that
+    # opts into OPA-based service-to-service authorization has somewhere to point at immediately.
+    #
+    # No healthcheck: the image is minimal/distroless (verified directly - no shell, no wget/curl,
+    # only the /opa binary itself), so a CMD-SHELL-style check can never run in it. Same as
+    # keycloak/kafka/redis/rabbitmq elsewhere in this file, which also ship with no healthcheck.
+    image: openpolicyagent/opa:1.0.1
+    command: ["run", "--server", "--addr", ":8181", "/policies"]
+    volumes:
+      - ./deploy/opa/policies:/policies:ro
+    ports:
+      - "8181:8181"
+
+  elasticsearch:
+    # Backs the "search users" read path (see UserSearchIndexConfig) - the one addition beyond
+    # the standard local runtime named in Development_Environment_Configuration.md. Pinned to
+    # 8.18.8 to match ElasticsearchIntegrationTest / UserControllerIntegrationTest's Testcontainers
+    # version, so local dev and integration tests exercise the same server version.
+    image: elasticsearch:8.18.8
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # --- Log aggregation (ELK): services -> logstash -> elasticsearch-logs -> kibana ------------
+  # Added because structured logging was only half-built: every service emitted a well-formed JSON
+  # line to stdout and nothing ever collected it, so the only way to read a log was
+  # `docker compose logs`, per container, lost on recreate. See
+  # deploy/logstash/pipeline/logstash.conf for why the services push instead of a shipper tailing
+  # their stdout, and MASTER_CODE_STANDARDS.md section 9 for the standard.
+
+  elasticsearch-logs:
+    # A SECOND Elasticsearch, deliberately - not the `elasticsearch` service above. That one backs
+    # the "search users" read path (UserSearchIndexConfig), which is a product feature: log ingest
+    # volume must not compete with it for heap, disk or IO, and a log-driven disk-full must not
+    # take out user search. Different port (9201) so both can publish to the host.
+    image: elasticsearch:8.18.8
+    environment:
+      discovery.type: single-node
+      # Basic tier, no licence key required. Security off matches the sibling cluster and keeps
+      # local dev keyless; a real environment turns this on (TLS + native realm are both free -
+      # only OIDC/SAML SSO and audit logging are Platinum).
+      xpack.security.enabled: "false"
+      xpack.security.http.ssl.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9201:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kibana:
+    # The query UI. Discover is the piece that matters: filter on correlationId to follow one
+    # request across all four services, which was impossible when logs lived in per-container
+    # stdout. Logins are Elasticsearch-native - Keycloak SSO into Kibana is a Platinum feature and
+    # is not wired.
+    image: kibana:8.18.8
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch-logs:9200"]'
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch-logs:
+        condition: service_healthy
+
+  logstash:
+    # Receives the JSON log events the services push (LogstashTcpSocketAppender in
+    # common-observability's logback-json-console-appender.xml) and forwards them to
+    # elasticsearch-logs. See deploy/logstash/pipeline/logstash.conf for why the services push
+    # rather than a shipper tailing stdout: Docker Desktop's WSL2 backend does not expose the
+    # daemon's container-log directory to any container, so Filebeat/Fluent Bit/the OTel filelog
+    # receiver cannot see the logs at all in this environment.
+    image: logstash:8.18.8
+    environment:
+      # Logstash defaults to 1GB heap on a stack that already runs two Elasticsearches, Keycloak,
+      # Kafka and RabbitMQ. It is only decoding JSON and forwarding, so 256MB is ample.
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      # Basic tier. Monitoring off: it would write its own metrics into the logs cluster, which is
+      # noise here and one more thing to break startup if the cluster is slow to come up.
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./deploy/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports:
+      # 5044 in-network for the services. Also published so a service run as a host JVM
+      # (start-ipie.sh's mode) can reach it on localhost:5044.
+      - "5044:5044"
+    healthcheck:
+      # The pipeline is only listening once the Logstash API reports it started; without this the
+      # services can connect-and-fail during the ~40s Logstash takes to boot.
+      test: ["CMD-SHELL", "curl -sf http://localhost:9600/_node/stats || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      elasticsearch-logs:
+        condition: service_healthy
+
+  pgadmin:
+    # Opt-in: a database GUI is a convenience, not part of the stack, and it is one more container
+    # holding a connection to the host Postgres.
+    #   docker compose --profile pgadmin up -d
+    profiles: ["pgadmin"]
+    image: dpage/pgadmin4
+    container_name: my_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    # depends_on:
+    #   - postgres
+    # Register the server manually inside the pgAdmin UI: host "host.docker.internal", port 5432,
+    # and whatever username/password/db your local Postgres actually uses.
+
+  keycloak:
+    # Opt-in. The platform standard runs Keycloak on the HOST, not here (see Architecture_Plan.md):
+    # the ipie-keycloak-spi authenticators call ipie-iam-service from inside Keycloak's process,
+    # and the host install owns the realm, its data and the providers/ directory. Starting this
+    # one publishes 8080 as well and silently competes with it - two Keycloaks, one port, and
+    # whichever loses is diagnosed as a broken login.
+    #   docker compose --profile keycloak up -d
+    profiles: ["keycloak"]
+    image: quay.io/keycloak/keycloak:26.6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Fixes the token issuer to one literal name, "keycloak", rather than deriving it from
+      # whatever Host header a given request happened to arrive with (the classic Keycloak/compose
+      # issuer mismatch - a token minted via a host-side call would otherwise carry a different
+      # iss than one minted from inside the container network, and ipie-service-template validates
+      # against a single fixed issuer-uri). REST calls to the token endpoint (curl/Postman/the
+      # ipie-web login flow) work through this transparently no matter which literal URL you called
+      # it with. The browser-facing Account/Admin Console does not: it renders absolute
+      # http://keycloak:8080/... URLs into the page itself, so the browser must be able to resolve
+      # "keycloak" for real - add "127.0.0.1 keycloak" to your hosts file (this is exactly why the
+      # host port below is 8080, matching this value, rather than some other mapped port).
+      KC_HOSTNAME: http://keycloak:8080
+      # Read by ipie-keycloak-spi's PillarLinkResolverClient, running inside this same
+      # container's JVM (see the providers/ volume mount below) - it has no application.yml of
+      # its own to draw defaults from (plain Keycloak SPI code, not Spring), so every value it
+      # needs comes from an env var here, Docker-network-reachable rather than the localhost
+      # defaults that class falls back to for a standalone/native Keycloak instance.
+      IPIE_KEYCLOAK_BASE_URL: http://keycloak:8080
+      IPIE_KEYCLOAK_REALM: ipie
+      IPIE_KEYCLOAK_SPI_CLIENT_ID: ipie-keycloak-spi
+      IPIE_KEYCLOAK_SPI_CLIENT_SECRET: ipie-keycloak-spi-secret
+      # PillarLinkResolverClient's target moved from ipie-user-service to ipie-iam-service
+      # (ADR-001) - the resolve call now reads iam-service's own pillar_resolution
+      # projection, not user-service directly. IPIE_USER_SERVICE_BASE_URL is no longer read by
+      # this SPI (removed, not just unused) now that /resolve has moved off it.
+      IPIE_IAM_SERVICE_BASE_URL: http://ipie-iam-service:8080
+      # Where an unrecognized federated login redirects instead of provisioning an account -
+      # PillarLinkResolverAuthenticator#redirectToRegistration. The browser (not this
+      # container) follows this URL, so it must be host-reachable, not a Docker-network name -
+      # ipie-web isn't in this compose file (runs via `npm run dev` on the host).
+      IPIE_WEB_REGISTER_URL: http://localhost:5173/register
+      # HMAC-signs every resolve call (PillarLinkResolverClient's HmacRequestSigner) -
+      # verified by ipie-iam-service's HmacSignatureVerificationFilter against the matching
+      # IPIE_SECURITY_HMAC_KEY_SPI_TO_IAM value on that service, below. Hardcoded local-dev value,
+      # same convention every other client credential in this file already follows.
+      IPIE_SPI_HMAC_KEY_ID: spi-to-iam
+      IPIE_SPI_HMAC_SECRET: spi-to-iam-hmac-secret
+    volumes:
+      - ./deploy/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+      # ipie-keycloak-spi's custom first-broker-login Authenticator (stakeholder SSO federation) -
+      # build it first with `./gradlew :ipie-keycloak-spi:jar` before `docker compose up`; Keycloak
+      # in start-dev mode auto-detects a new provider jar here and rebuilds on startup, no custom
+      # Dockerfile needed.
+      - ./deploy/keycloak/providers:/opt/keycloak/providers:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      keycloak-ibbi-mock:
+        condition: service_started
+      keycloak-nclt-mock:
+        condition: service_started
+      keycloak-mca-mock:
+        condition: service_started
+      keycloak-nesl-mock:
+        condition: service_started
+
+  keycloak-ibbi-mock:
+    # Opt-in with the rest of the Keycloaks - only needed for stakeholder SSO federation work.
+    profiles: ["keycloak"]
+    # Mocks IBBI's own identity provider for the stakeholder-SSO federation feature - a real
+    # agency's IdP is out of this platform's control, so this stands in for it end to end (real
+    # users, real OIDC endpoints) rather than being stubbed out. See
+    # deploy/keycloak/mock-ibbi-realm.json's own header comments for the three clients it seeds:
+    # ipie-broker (the main "keycloak" service's identityProviders[] broker config),
+    # ipie-account-linker (ipie-user-service's explicit account-linking handshake) and
+    # ipie-admin-writeback (the write-ipie_id-back-onto-the-user demo).
+    #
+    # KC_HTTP_PORT is set to 9091 (not left at Keycloak's own default 8080) specifically so the
+    # host port mapping below can be the identity "9091:9091" - the same trick the "keycloak"
+    # service above uses with 8080:8080, so this container's own generated URLs (KC_HOSTNAME) are
+    # reachable identically by the browser (via the "127.0.0.1 keycloak-ibbi-mock" hosts-file
+    # entry this needs, same requirement as "keycloak" already documents) and by other containers
+    # on this network (via Docker's own DNS) - one literal "keycloak-ibbi-mock:9091" string works
+    # for both, with no separate internal-vs-external URL split needed anywhere in the platform's
+    # own config (see ipie-user-service's IPIE_PILLAR_IBBI_* overrides below).
+    image: quay.io/keycloak/keycloak:26.6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "9091"
+      KC_HOSTNAME: http://keycloak-ibbi-mock:9091
+    volumes:
+      # Keycloak's dir-import requires the *container-side* filename to be "<realm>-realm.json"
+      # exactly (realm inside is "ibbi-mock") - target filename deliberately differs from the
+      # host-side name to satisfy that, without renaming the file in the repo.
+      - ./deploy/keycloak/mock-ibbi-realm.json:/opt/keycloak/data/import/ibbi-mock-realm.json:ro
+    ports:
+      - "9091:9091"
+
+  keycloak-nclt-mock:
+    # Opt-in with the rest of the Keycloaks - only needed for stakeholder SSO federation work.
+    profiles: ["keycloak"]
+    # Mocks NCLT's own identity provider - same shape as keycloak-ibbi-mock above, just a
+    # different port/realm/hosts-file entry ("127.0.0.1 keycloak-nclt-mock").
+    image: quay.io/keycloak/keycloak:26.6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "9092"
+      KC_HOSTNAME: http://keycloak-nclt-mock:9092
+    volumes:
+      # Keycloak's dir-import requires the *container-side* filename to be "<realm>-realm.json"
+      # exactly (realm inside is "nclt-mock") - see keycloak-ibbi-mock's comment above.
+      - ./deploy/keycloak/mock-nclt-realm.json:/opt/keycloak/data/import/nclt-mock-realm.json:ro
+    ports:
+      - "9092:9092"
+
+  keycloak-mca-mock:
+    # Opt-in with the rest of the Keycloaks - only needed for stakeholder SSO federation work.
+    profiles: ["keycloak"]
+    # Mocks MCA's own identity provider - same shape as keycloak-ibbi-mock above, just a
+    # different port/realm/hosts-file entry ("127.0.0.1 keycloak-mca-mock").
+    image: quay.io/keycloak/keycloak:26.6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "9093"
+      KC_HOSTNAME: http://keycloak-mca-mock:9093
+    volumes:
+      # Keycloak's dir-import requires the *container-side* filename to be "<realm>-realm.json"
+      # exactly (realm inside is "mca-mock") - see keycloak-ibbi-mock's comment above.
+      - ./deploy/keycloak/mock-mca-realm.json:/opt/keycloak/data/import/mca-mock-realm.json:ro
+    ports:
+      - "9093:9093"
+
+  keycloak-nesl-mock:
+    # Opt-in with the rest of the Keycloaks - only needed for stakeholder SSO federation work.
+    profiles: ["keycloak"]
+    # Mocks NeSL's own identity provider - same shape as keycloak-ibbi-mock above, just a
+    # different port/realm/hosts-file entry ("127.0.0.1 keycloak-nesl-mock").
+    image: quay.io/keycloak/keycloak:26.6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "9094"
+      KC_HOSTNAME: http://keycloak-nesl-mock:9094
+    volumes:
+      # Keycloak's dir-import requires the *container-side* filename to be "<realm>-realm.json"
+      # exactly (realm inside is "nesl-mock") - see keycloak-ibbi-mock's comment above.
+      - ./deploy/keycloak/mock-nesl-realm.json:/opt/keycloak/data/import/nesl-mock-realm.json:ro
+    ports:
+      - "9094:9094"
+
+
